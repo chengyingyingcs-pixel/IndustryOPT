@@ -1,0 +1,2 @@
+Hint: The `hf-cli` skill is not installed. Run `hf skills add -g --claude` to teach your AI agents how to use the `hf` CLI.
+path=/public/chengyingying/hf_cache/hub/models--Aurora-Gem--OptMATH-Qwen2.5-7B/snapshots/617fe77f2e930ccb518c081ea4faace9677bb6ab
