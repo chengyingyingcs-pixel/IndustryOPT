@@ -107,12 +107,12 @@
 
 | 失败类型 | 次数 | 占失败比例 |
 |---|---:|---:|
-| 代码执行错误 | 4641 | 61.83% |
-| 未提取出 `build()` | 1281 | 17.08% |
-| 依赖/API 不匹配 | 923 | 12.30% |
-| 代码语法错误 | 434 | 5.79% |
-| 目标值不一致 | 144 | 1.92% |
-| 求解器无可行解 | 75 | 1.00% |
+| 代码执行错误 | 4666 | 62.21% |
+| 未提取出 `build()` | 1255 | 16.73% |
+| 依赖/API 不匹配 | 929 | 12.39% |
+| 代码语法错误 | 429 | 5.72% |
+| 目标值不一致 | 145 | 1.93% |
+| 求解器无可行解 | 74 | 0.99% |
 | 执行超时 | 2 | 0.03% |
 | 约束不可行 / 交叉验证失败 | 1 | 0.01% |
 | **合计** | **7501** | **100%** |
@@ -123,7 +123,7 @@
 
 | 模型 | 代码执行错误 | 未提取 `build()` | API 不匹配 | 语法错误 | 目标值不一致 | 求解器无可行解 | 超时 | 交叉验证失败 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
-| OptMATH-Qwen2.5-7B | 601 | 78 | 28 | 30 | 0 | 1 | 0 | 0 |
+| OptMATH-Qwen2.5-7B | 626 | 52 | 34 | 25 | 1 | 0 | 0 | 0 |
 | OptMATH-Qwen2.5-32B | 669 | 18 | 18 | 33 | 0 | 0 | 0 | 0 |
 | SIRL-Qwen2.5-7B-Gurobi | 657 | 3 | 0 | 46 | 11 | 19 | 2 | 0 |
 | SIRL-Qwen2.5-7B-COPT | 384 | 18 | 170 | 166 | 0 | 0 | 0 | 0 |
@@ -134,6 +134,37 @@
 | OptiMind-SFT | 255 | 46 | 429 | 8 | 0 | 0 | 0 | 0 |
 | StepORLM-Qwen3-8B | 46 | 692 | 0 | 0 | 0 | 0 | 0 | 0 |
 | Qwen3-SIRL-4B | 464 | 22 | 220 | 23 | 8 | 0 | 0 | 1 |
+
+### 5.3 OptMATH-Qwen2.5-7B 失败原因细分
+
+以下统计来自 `max_tokens=24576` 的复测结果，共 738 个失败 instance-run。
+
+| 失败原因 | 次数 | 占总失败比例 |
+|---|---:|---:|
+| 数据结构 / 参数访问错误 | 270 | 36.59% |
+| 其他运行时错误 | 210 | 28.46% |
+| Pyomo 集合 / 变量 / 约束构造错误 | 146 | 19.78% |
+| 未提取出 `build()` | 52 | 7.05% |
+| API / 依赖不匹配 | 34 | 4.61% |
+| 代码语法错误 | 25 | 3.39% |
+| 目标值不一致 | 1 | 0.14% |
+| **合计** | **738** | **100%** |
+
+高频错误签名包括：
+
+| 错误签名 | 次数 |
+|---|---:|
+| `Cannot create a Set from data ... received 'int'` | 36 |
+| `KeyError: 'node.csv'` | 32 |
+| `KeyError: 'parameters.json'` | 30 |
+| `AttributeError: module 'pyomo.environ' has no attribute 'infinity'` | 30 |
+| `TypeError: unhashable type: 'dict'` | 28 |
+| `KeyError: 'config.json'` | 20 |
+| `IndexedVar[0] ... has not been constructed` | 19 |
+| `invalid literal for int() with base 10: '%%MatrixMarket'` | 18 |
+| `TypeError: list indices must be integers or slices, not dict` | 18 |
+
+这些错误说明主要瓶颈不是“模型完全没有输出代码”：98/108 个生成可提取 `build()`，但代码经常错误理解 IndusOPT 的数据层级和 Pyomo 组件语义。最典型的失败链路是：读取 `parameters.json` 或 CSV 的方式与实际 schema 不一致，随后把标量、列表、字典错误地传给 Pyomo `Set` / `Param` / `Var`，导致模型在构造或求解阶段崩溃。唯一一次进入目标值比较的 run 也得到 `目标值不一致：1 vs 参考 8`。
 
 ## 6. 关键观察
 
@@ -157,7 +188,7 @@ import gurobipy as gp
 
 | 模型 | 可提取 `build()` / 108 |
 |---|---:|
-| OptMATH-Qwen2.5-7B | 94 |
+| OptMATH-Qwen2.5-7B | 98 |
 | OptMATH-Qwen2.5-32B | 105 |
 | SIRL-Qwen2.5-7B-Gurobi | 107 |
 | SIRL-Qwen2.5-7B-COPT | 105 |
@@ -245,6 +276,21 @@ import gurobipy as gp
    - 最终 Pass@1 / Pass@6。
 
 ## 9. 结果位置
+
+### 9.1 OptMATH-Qwen2.5-7B 高生成长度复测
+
+为检验输出截断对 `OptMATH-Qwen2.5-7B` 的影响，另跑一次 `max_tokens=24576`（原为 `12288`）。旧结果已备份在：
+
+- `eval_results/finetuned_sweep/generations/OptMATH-Qwen2.5-7B_max12288_20260903-173122/`
+- `eval_results/finetuned_sweep/evals/OptMATH-Qwen2.5-7B_max12288_20260903-173122/`
+- `eval_results/finetuned_sweep/scores/OptMATH-Qwen2.5-7B_max12288_20260903-173122.json`
+
+| 配置 | 可提取 `build()` / 108 | 可判定 instance-run | 通过数 | Pass@1 | Pass@6 | 结论 |
+|---|---:|---:|---:|---:|---:|---|
+| `max_tokens=12288` | 94 | 738 | 0 | 0.00% | 0.00% | 原结果 |
+| `max_tokens=24576` | 98 | 738 | 0 | 0.00% | 0.00% | 复测 |
+
+提高生成长度后，提取失败从 14 个生成降到 10 个生成，但 108/108 个生成仍因 `length` 截断，平均输出约 24551 token。Pass@1 / Pass@6 保持为 0；738 个失败 instance-run 的细分见第 5.3 节。该复测说明单纯提高 `max_tokens` 不能解决该模型在本协议下的适配与建模错误。
 
 | 内容 | 路径 |
 |---|---|
