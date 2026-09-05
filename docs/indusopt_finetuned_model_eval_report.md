@@ -61,6 +61,95 @@
 
 需要强调：108 是“问题类级生成次数”，不是“实例级判定次数”。模型为每个问题类生成一份通用建模代码，该代码会在该问题类的多个实例上执行。
 
+### Composer 与 Opus 的提示词
+
+论文主实验中的 `composer-2.5` 和 `claude-opus-5` 使用相同的提示词模板，区别仅在传给 Cursor Cloud Agent 的模型 ID。该实验与本报告 11 个公开权重 checkpoint 的 vLLM 微调模型实验不是同一次实验：Composer/Opus 通过无仓库访问权限的 Cloud Agent 调用，未显式设置 temperature、seed 或最大输出 token；11 个微调模型则按本节前述参数进行本地单次生成。
+
+Composer 和 Opus 的完整模板如下，其中尖括号内容会替换为当前问题的实际文件内容：
+
+````text
+你是运筹优化专家。下面给出一个业务问题的自然语言描述和配套数据，请你建立数学模型并写出可求解的代码。
+
+# 业务问题描述
+
+<nl/statement.md 内容>
+
+# 补充说明
+
+<nl/annotations.md 内容；仅在 with-annotations 条件出现>
+
+# 数据说明
+
+<data/README.md 内容>
+
+# 数据文件
+
+以下是一个实例（`inst_001`）的数据文件，供你了解格式。你的代码需要能处理该问题的全部 N 个实例。
+
+`<文件名>.json`:
+
+```json
+<inst_001 中该 JSON 文件的内容>
+```
+
+`<文件名>.csv`:
+
+```csv
+<inst_001 中该 CSV 文件的内容>
+```
+
+# 你要输出什么
+
+只输出一个 Python 代码块，不要有其他内容。代码块里必须定义一个函数：
+
+```python
+def build(data: dict):
+    """从 data 构建并返回一个 pyomo ConcreteModel。"""
+```
+
+硬性要求：
+
+1. 用 Pyomo 建模，返回 `ConcreteModel`，其中包含决策变量、唯一的 `Objective`、以及全部约束。
+2. **不要在 build 里求解**，只负责建模。求解由调用方完成。
+3. 所有数值都从 `data` 里读，不许硬编码。
+4. `data` 的结构：单个 JSON 文件时就是该文件解析后的内容；多个文件时是一个字典，
+   键为文件名去掉扩展名，JSON 值为解析后的对象，CSV 值为 `list[dict[str, str]]`
+   （注意 CSV 读出来全是字符串，需要自己转类型）。
+5. 只用标准库和 pyomo，不要 pandas、numpy。
+````
+
+两种模型都分别测试了两个输入条件：
+
+| 条件 | 提供给模型的内容 |
+|---|---|
+| `with-ann` | `nl/statement.md`、`nl/annotations.md`、`data/README.md` 和 `inst_001` 数据样例 |
+| `no-ann` | `nl/statement.md`、`data/README.md` 和 `inst_001` 数据样例，不提供 annotations |
+
+#### 条件一：with-ann（含业务注释）
+
+该条件按以下顺序拼接输入：
+
+1. `nl/statement.md`：面向模型的业务问题描述；
+2. `nl/annotations.md`：领域工程师整理的隐含约束、术语解释和易错点，在 prompt 中显示为“补充说明”；
+3. `data/README.md`：实例文件、字段、单位和数据关系说明；
+4. `data/inst_001/`：第一个实例的 JSON/CSV 内容，用于展示实际数据格式。
+
+该条件衡量的是：当业务描述、数据说明以及专家整理的领域知识均可获得时，Composer 或 Opus 能否生成正确且可泛化到该问题全部实例的 Pyomo 模型。annotations 不是参考数学模型或答案，但可能显式说明仅靠题面不容易推断的业务约束。
+
+#### 条件二：no-ann（不含业务注释）
+
+该条件从上述输入中移除整个 `nl/annotations.md` 及“补充说明”章节，只保留：
+
+1. `nl/statement.md`；
+2. `data/README.md`；
+3. `data/inst_001/` 的 JSON/CSV 格式样例。
+
+该条件衡量的是：模型在没有专家补充说明时，能否仅根据原始业务描述和数据定义识别隐含业务规则并完成建模。`with-ann` 与 `no-ann` 的结果差异用于观察 annotations 对建模结果的影响，但单次运行的差异也可能包含模型随机性，不能全部解释为 annotations 的因果贡献。
+
+除是否包含 `nl/annotations.md` 外，两组实验保持以下条件一致：使用同一个问题版本、同一个 `inst_001` 数据样例、同一输出格式要求、同一模型 ID、同一 Cloud Agent 运行方式以及同一执行和判定流程。Composer 与 Opus 各自都运行这两个条件，而不是 Composer 只运行其中一组、Opus 运行另一组。
+
+每个样例数据文件最多内联 4000 个字符，超过部分以 `... (已截断)` 标记。两种条件均不提供 `formulation/model.md`、参考 `code/model.py`、`solution/*.json`、其他实例数据或仓库工作目录。提示词由 `tools/eval/run_eval.py` 的 `build_prompt()` 构造，并直接作为一个 user prompt 传给 `Agent.prompt()`；仓库中没有为 Composer 和 Opus 分别设置不同的 system prompt。
+
 ## 3. 主结果
 
 | 模型 | 生成文件 | 评测 run 数 | 可判定 instance-run | 通过数 | Pass@1 | Pass@6 | 状态 |
