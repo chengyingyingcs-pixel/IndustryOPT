@@ -277,6 +277,22 @@ def build(data: dict):
 
 这些错误说明主要瓶颈不是“模型完全没有输出代码”：98/108 个生成可提取 `build()`，但代码经常错误理解 IndusOPT 的数据层级和 Pyomo 组件语义。最典型的失败链路是：读取 `parameters.json` 或 CSV 的方式与实际 schema 不一致，随后把标量、列表、字典错误地传给 Pyomo `Set` / `Param` / `Var`，导致模型在构造或求解阶段崩溃。唯一一次进入目标值比较的 run 也得到 `目标值不一致：1 vs 参考 8`。
 
+### 5.4 OptMATH-Qwen2.5-32B-no-ann 失败原因
+
+对 `OptMATH-Qwen2.5-32B` 在不提供 `nl/annotations.md` 的条件下的 108 个问题级生成进行复核。该模型有 105/108 次成功提取出 `build()`，但在 738 个可判定 instance-run 中通过数为 0，因此 `Pass@1` 和 `Pass@6` 均为 0.00%。失败主要发生在数据绑定和 Pyomo 模型构建阶段，而不是没有输出代码。
+
+**数据文件键名使用错误。** 评测器将多文件实例加载为以去掉扩展名的文件名为键的字典，例如 `nodes.csv` 对应 `data["nodes"]`，`parameters.json` 对应 `data["parameters"]`。生成代码却多次访问 `data["nodes.csv"]`、`data["demands.csv"]`、`data["config.json"]` 或 `data["parameters.json"]`，触发 `KeyError`。这说明模型没有稳定遵循 prompt 中的 data schema 约定。
+
+**CSV 的列表-字典结构处理错误。** CSV 文件的值是 `list[dict[str, str]]`，应先遍历记录再按字段名取值。模型有时把列表当作字典或把字典当作整数索引，产生 `TypeError: list indices must be integers or slices, not str` 等错误，导致网络、负载均衡和内存分配等问题无法完成数据读取。
+
+**Pyomo 索引假设错误。** 许多实例使用字符串或稀疏业务 ID 作为集合元素，模型却定义集合后用 `0`、`1` 等整数访问变量，例如 `model.x[0]`。典型错误为 `KeyError: Index '0' is not valid for indexed component 'x'`、`'t'` 或 `'t_pointwise'`。这类错误反映模型把业务索引错误地假设成从零开始的连续整数。
+
+**符号表达式与 Python 布尔值混用。** 在虚拟电厂等代码中出现 `TypeError: unsupported operand type(s) for *: 'LinearExpression' and 'bool'`。这通常是将 `t in set` 或 Python 条件表达式直接乘到 Pyomo 表达式上，而不是使用 Pyomo 参数或显式约束表达逻辑，导致模型构造失败。
+
+**字段名和数据层级猜测错误。** 除顶层键名外，代码还会猜测不存在的字段，例如 `KeyError: 'capex_cny_per_unit'`。其根因是把数学符号或其他问题的字段名当成当前实例字段，或忽略 `data/README.md` 的字段字典。
+
+**失败所处阶段及含义。** 105/108 份生成结果包含可提取的 `build()`，但大量代码在读取数据或构造 Pyomo 集合、变量和约束时就退出，几乎没有进入目标值比较阶段。因此，0% 通过率主要衡量的是 OptMATH-32B 在统一 Pyomo 接口下对工业数据 schema、业务索引和模型构造语义的适配失败，不能单独解释为其数学优化能力完全为零。由于本实验是闭卷一次性生成，没有把 traceback 返回给模型进行修复，这些早期错误会在该问题的全部实例上重复出现。
+
 ## 6. 关键观察
 
 ### 6.1 失败集中在代码适配层
