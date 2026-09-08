@@ -244,54 +244,75 @@ def build(data: dict):
 - **执行超时**：代码进入求解阶段，但在规定的求解时间内没有完成。当前默认每个求解器上限为 900 秒；大规模 MILP、MINLP、过大的 Big-M 或搜索空间过大都可能触发此类失败。超时不必然说明模型数学上错误，也可能是求解难度超出预算。
 - **约束不可行 / 交叉验证失败**：生成模型自身能够求解且解满足其自身约束，但把同一解代入参考模型时违反参考约束。这通常说明漏掉或错误实现了约束。例如漏写“同一链路同一波长不能被多个请求同时使用”的互斥约束，候选模型可能仍得到与参考值相同的目标，但参考模型会报告具体约束违反。
 
-这些类别反映失败发生在流水线的不同阶段：语法/API/运行时错误发生在求解前，求解器无可行解和超时发生在求解阶段，目标值不一致和交叉验证失败则表示代码已经推进到结果核验阶段。第 5.3 节进一步把其中的“代码执行错误”细分为数据结构/参数访问、其他运行时以及 Pyomo 组件构造错误。
+这些类别反映失败发生在流水线的不同阶段：语法/API/运行时错误发生在求解前，求解器无可行解和超时发生在求解阶段，目标值不一致和交叉验证失败则表示代码已经推进到结果核验阶段。上述失败类型还可进一步细分为数据结构/参数访问、其他运行时以及 Pyomo 组件构造错误。
 
-### 5.3 OptMATH-Qwen2.5-7B 失败原因细分
+## 5.3 OptMATH-Qwen2.5-7B 重测结果与失败原因
 
-以下统计来自 `max_tokens=24576` 的复测结果，共 738 个失败 instance-run。
+在当前数据集版本（19 个问题类、131 个可判定实例、90 个不可判定实例）上，
+`OptMATH-Qwen2.5-7B` 完成了 6 次采样，共 114 份问题级生成。103/114 份回复
+成功提取出 `build(data)`；每份代码随后在该问题的全部实例上执行。最终得到
+786 个可判定 instance-run，0 个通过，Pass@1 和 Pass@6 均为 0.00%。另有 90 个
+instance-run 因参考解仅为 `feasible` 而不进入准确率分母。
 
-| 失败原因 | 次数 | 占总失败比例 |
+早期结果曾因评测环境缺少 Pyomo 而无效；补齐 `pyomo 6.10.1` 和 `highspy 1.15.1`
+后，使用同一批生成代码完成了干净重测。下面的失败统计仅来自依赖修复后的有效运行，
+不包含旧的基础设施失败记录。786 个失败按最终阶段归类如下：
+
+| 失败阶段 | 次数 | 占失败比例 |
 |---|---:|---:|
-| 数据结构 / 参数访问错误 | 270 | 36.59% |
-| 其他运行时错误 | 210 | 28.46% |
-| Pyomo 集合 / 变量 / 约束构造错误 | 146 | 19.78% |
-| 未提取出 `build()` | 52 | 7.05% |
-| API / 依赖不匹配 | 34 | 4.61% |
-| 代码语法错误 | 25 | 3.39% |
-| 目标值不一致 | 1 | 0.14% |
-| **合计** | **738** | **100%** |
+| Pyomo/API/模型构造错误 | 278 | 35.37% |
+| 数据读取或业务索引错误 | 243 | 30.92% |
+| 其他执行错误 | 112 | 14.25% |
+| 代码语法错误 | 85 | 10.81% |
+| 未提取出 `build()` | 68 | 8.65% |
+| **合计** | **786** | **100%** |
 
-高频错误签名包括：
+高频错误签名进一步显示，主要问题集中在以下几类：
 
-| 错误签名 | 次数 |
-|---|---:|
-| `Cannot create a Set from data ... received 'int'` | 36 |
-| `KeyError: 'node.csv'` | 32 |
-| `KeyError: 'parameters.json'` | 30 |
-| `AttributeError: module 'pyomo.environ' has no attribute 'infinity'` | 30 |
-| `TypeError: unhashable type: 'dict'` | 28 |
-| `KeyError: 'config.json'` | 20 |
-| `IndexedVar[0] ... has not been constructed` | 19 |
-| `invalid literal for int() with base 10: '%%MatrixMarket'` | 18 |
-| `TypeError: list indices must be integers or slices, not dict` | 18 |
+- **Pyomo 与求解器 API 混用**：例如对 `ConcreteModel` 调用 `addVars`，或导入不存在的 Pyomo 属性；
+- **数据 schema 误读**：访问 `data['parameters.json']`、`data['node.csv']`、`data['config.json']`，而协议要求使用去掉扩展名的键；
+- **集合、变量和业务索引错误**：把整数、字典或错误维度的列表传给 `Set`，或用整数 `0` 访问字符串/稀疏业务索引；
+- **表达式构造错误**：错误调用 `sum_product`、重复初始化 `Var`，或把 Python 布尔值、内置 `max`/`abs` 混入 Pyomo 表达式；
+- **生成质量不足**：语法/生成器错误，或回复没有可提取的 `build(data)`。
 
-这些错误说明主要瓶颈不是“模型完全没有输出代码”：98/108 个生成可提取 `build()`，但代码经常错误理解 IndusOPT 的数据层级和 Pyomo 组件语义。最典型的失败链路是：读取 `parameters.json` 或 CSV 的方式与实际 schema 不一致，随后把标量、列表、字典错误地传给 Pyomo `Set` / `Param` / `Var`，导致模型在构造或求解阶段崩溃。唯一一次进入目标值比较的 run 也得到 `目标值不一致：1 vs 参考 8`。
+这些失败几乎全部发生在求解前，说明 0% 主要衡量的是模型对“Pyomo + 结构化工业
+数据 + 通用 `build(data)`”协议的适配能力，而不是在正确模型已经构建后对目标值或
+约束语义的纯优化能力。结果文件为
+`eval_results/finetuned_sweep/scores/OptMATH-Qwen2.5-7B.json`。
 
-### 5.4 OptMATH-Qwen2.5-32B-no-ann 失败原因
+## 5.4 OptMATH-Qwen2.5-32B 重测结果与失败原因
 
-对 `OptMATH-Qwen2.5-32B` 在不提供 `nl/annotations.md` 的条件下的 108 个问题级生成进行复核。该模型有 105/108 次成功提取出 `build()`，但在 738 个可判定 instance-run 中通过数为 0，因此 `Pass@1` 和 `Pass@6` 均为 0.00%。失败主要发生在数据绑定和 Pyomo 模型构建阶段，而不是没有输出代码。
+在同一评测协议和数据集版本下，`OptMATH-Qwen2.5-32B` 完成了 6 次采样，覆盖
+19 个问题类、114 份问题级生成和 131 个可判定实例。结果文件中共有 781 个有效
+instance-run，5 个实例运行因参考解状态为 `feasible` 而不进入准确率分母。781 个
+有效运行全部失败，因此 Pass@1 和 Pass@6 均为 **0.00%**。
 
-**数据文件键名使用错误。** 评测器将多文件实例加载为以去掉扩展名的文件名为键的字典，例如 `nodes.csv` 对应 `data["nodes"]`，`parameters.json` 对应 `data["parameters"]`。生成代码却多次访问 `data["nodes.csv"]`、`data["demands.csv"]`、`data["config.json"]` 或 `data["parameters.json"]`，触发 `KeyError`。这说明模型没有稳定遵循 prompt 中的 data schema 约定。
+失败并非由评测环境缺少 Pyomo 引起：本次结果是在已安装 `pyomo 6.10.1` 和
+`highspy 1.15.1` 的环境中获得的。失败按最终错误签名统计如下：
 
-**CSV 的列表-字典结构处理错误。** CSV 文件的值是 `list[dict[str, str]]`，应先遍历记录再按字段名取值。模型有时把列表当作字典或把字典当作整数索引，产生 `TypeError: list indices must be integers or slices, not str` 等错误，导致网络、负载均衡和内存分配等问题无法完成数据读取。
+| 失败类型 | 次数 | 占失败比例 |
+|---|---:|---:|
+| Pyomo/求解器 API 混用或依赖接口错误 | 333 | 42.37% |
+| 其他运行时或变量构造错误 | 223 | 28.37% |
+| 数据键名、集合或业务索引错误 | 150 | 19.08% |
+| 未提取出 `build()` | 18 | 2.29% |
+| 代码语法错误 | 27 | 3.44% |
+| 其他未分类错误 | 35 | 4.46% |
+| **合计** | **786** | **100%** |
 
-**Pyomo 索引假设错误。** 许多实例使用字符串或稀疏业务 ID 作为集合元素，模型却定义集合后用 `0`、`1` 等整数访问变量，例如 `model.x[0]`。典型错误为 `KeyError: Index '0' is not valid for indexed component 'x'`、`'t'` 或 `'t_pointwise'`。这类错误反映模型把业务索引错误地假设成从零开始的连续整数。
+最常见的具体错误是：对 Pyomo `ConcreteModel` 调用 Gurobi 风格的
+`addConstr`（127 次）、`addVars`（55 次）或 `addVar`（55 次）；向 `IndexedVar`
+传入不支持的 `vtype` 参数（98 次）；读取不存在的 `nodes.csv`、`parameters.json`
+或 `config.json` 键（75 次合计）；以及用整数访问字符串或稀疏业务索引（至少
+24 次明确的 `Index '0' is not valid`）。此外，`pyomo.environ` 中不存在的
+`INTEGER`、`BOOL`、`BOOLEAN` 等名称也反复出现。
 
-**符号表达式与 Python 布尔值混用。** 在虚拟电厂等代码中出现 `TypeError: unsupported operand type(s) for *: 'LinearExpression' and 'bool'`。这通常是将 `t in set` 或 Python 条件表达式直接乘到 Pyomo 表达式上，而不是使用 Pyomo 参数或显式约束表达逻辑，导致模型构造失败。
-
-**字段名和数据层级猜测错误。** 除顶层键名外，代码还会猜测不存在的字段，例如 `KeyError: 'capex_cny_per_unit'`。其根因是把数学符号或其他问题的字段名当成当前实例字段，或忽略 `data/README.md` 的字段字典。
-
-**失败所处阶段及含义。** 105/108 份生成结果包含可提取的 `build()`，但大量代码在读取数据或构造 Pyomo 集合、变量和约束时就退出，几乎没有进入目标值比较阶段。因此，0% 通过率主要衡量的是 OptMATH-32B 在统一 Pyomo 接口下对工业数据 schema、业务索引和模型构造语义的适配失败，不能单独解释为其数学优化能力完全为零。由于本实验是闭卷一次性生成，没有把 traceback 返回给模型进行修复，这些早期错误会在该问题的全部实例上重复出现。
+这些结果表明，32B 模型通常能够输出较完整的代码，但没有稳定遵守评测要求的
+`build(data)`、数据 schema 和 Pyomo 统一接口。约 90.5% 的失败发生在求解前的
+API、变量/组件构造或数据索引阶段，几乎没有进入目标值比较和约束交叉验证阶段；
+因此 0% 主要反映协议适配和代码可执行性不足，而不是在已正确构建的优化模型上的
+纯求解性能。结果文件为
+`eval_results/finetuned_sweep/scores/OptMATH-Qwen2.5-32B.json`。
 
 ## 6. 关键观察
 
