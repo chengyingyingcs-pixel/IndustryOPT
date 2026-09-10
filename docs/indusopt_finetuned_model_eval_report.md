@@ -314,6 +314,151 @@ API、变量/组件构造或数据索引阶段，几乎没有进入目标值比�
 纯求解性能。结果文件为
 `eval_results/finetuned_sweep/scores/OptMATH-Qwen2.5-32B.json`。
 
+## 5.5 SIRL-Qwen2.5-7B-Gurobi 重测结果与失败原因
+
+该模型已完成 6 次采样，覆盖 19 个问题类、114 份问题级生成和 131 个可判定实例。
+共得到 777 个有效 instance-run，另有 9 个运行因参考解状态为 `feasible` 不进入
+准确率分母。有效运行中没有通过项，因此 Pass@1 和 Pass@6 均为 **0.00%**。
+
+786 个失败按最终错误原因归类如下：
+
+| 失败类型 | 次数 | 占失败比例 |
+|---|---:|---:|
+| 其他运行时错误 | 285 | 36.26% |
+| 数据读取或业务索引错误 | 177 | 22.52% |
+| API/依赖错误 | 150 | 19.08% |
+| 代码语法错误 | 73 | 9.29% |
+| 其他失败（含代码执行阶段未细分错误） | 94 | 11.96% |
+| 目标值不一致 | 6 | 0.76% |
+| 执行超时 | 1 | 0.13% |
+| **合计** | **786** | **100%** |
+
+失败主要集中在求解前。模型经常误用 Pyomo 组件或求解器接口，错误读取数据文件
+键名，或将字符串/稀疏业务 ID 当作连续整数索引；部分生成还包含语法、变量构造
+和运行时异常。仅 6 个 instance-run 成功进入目标值比较阶段但目标不一致，1 个
+instance-run 超过求解时间限制。这表明该模型在当前统一 Pyomo、`build(data)` 和
+结构化工业数据协议下的代码适配性不足，0% 主要反映可执行性与接口遵循问题，而非
+单纯的优化求解质量。
+
+结果文件为 `eval_results/finetuned_sweep/scores/SIRL-Qwen2.5-7B-Gurobi.json`。
+
+## 5.6 SIRL-Qwen2.5-7B-COPT 重测结果与失败原因
+
+`SIRL-Qwen2.5-7B-COPT` 已完成 6 次采样，覆盖 19 个问题类、114 份问题级生成和
+131 个可判定实例。共有 786 个有效 instance-run，全部未通过，因此 Pass@1 和
+Pass@6 均为 **0.00%**。另有 90 个运行对应的参考状态不是 `optimal`，不进入准确率
+分母。
+
+786 个失败按最终错误签名归类如下：
+
+| 失败类型 | 次数 | 占失败比例 |
+|---|---:|---:|
+| API/依赖错误 | 398 | 50.64% |
+| 代码语法错误 | 186 | 23.66% |
+| 其他运行时错误 | 87 | 11.07% |
+| 未提取出 `build()` | 56 | 7.12% |
+| 数据读取或业务索引错误 | 40 | 5.09% |
+| 其他失败 | 14 | 1.78% |
+| 求解器无可行解 | 5 | 0.64% |
+| **合计** | **786** | **100%** |
+
+最常见的错误包括：生成代码对 Pyomo `ConcreteModel` 调用不兼容的 `addVars`（73
+次）；从 `pyomo.environ` 导入不存在的 `Dict`（55 次）、`Continuous`（26 次）或
+`BINARY`（21 次）；导入不存在的 `pyomo.gt`、`pyomo.common.create_model` 等模块
+（合计至少 65 次）；以及生成 Python 语法错误（包括 85 次 `invalid syntax` 和
+43 次生成器表达式未加括号）。此外还出现把列表当作字典调用 `.keys()`、读取
+`data['node.csv']` 等错误数据结构访问。
+
+与 Gurobi 版本相比，该 COPT 微调模型的失败更集中在代码生成和接口适配：约
+74.3% 的失败属于 API/依赖或语法错误，只有 5 次进入求解器不可行判定，几乎没有
+进入目标值比较阶段。这说明在统一 Pyomo、`build(data)` 和当前依赖环境下，模型
+尚未稳定遵循可执行代码协议；0% 主要反映接口、依赖和代码生成质量问题，而非
+COPT 求解器本身的性能。结果文件为
+`eval_results/finetuned_sweep/scores/SIRL-Qwen2.5-7B-COPT.json`。
+
+## 5.7 SIRL-Qwen2.5-32B-Gurobi 重测结果与失败原因
+
+该模型已完成 19 个问题类的 6 次采样和全部实例评测，共覆盖 131 个可判定实例、691 个有效 instance-run；Pass@1 为 **0.14%**，Pass@6 为 **0.76%**。另有 90 个运行因参考状态不是 `optimal` 而不进入准确率分母。
+
+失败按最终原因归类如下：
+
+| 失败类型 | 次数 | 占失败比例 |
+|---|---:|---:|
+| 其他运行时或执行错误 | 535 | 77.54% |
+| 数据读取或业务索引错误 | 58 | 8.41% |
+| API/依赖错误 | 45 | 6.52% |
+| 目标值不一致 | 15 | 2.17% |
+| 代码语法错误 | 15 | 2.17% |
+| 执行超时 | 9 | 1.30% |
+| 求解器无可行解 | 8 | 1.16% |
+| 未提取出 build() | 5 | 0.72% |
+| **合计** | **690** | **100%** |
+
+最高频错误签名为：`子进程失败（exit -6）:   Bound   [1e+00, 1e+00] |   RHS     [1e+00, 1e+00] | terminate called without an active exception`（51 次）；`TypeError: unhashable type: 'dict'`（35 次）；`子进程失败（exit -6）: Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms | Includes third-party software compone`（28 次）；`子进程失败（exit 1）:     >>> if m.y in [m.x, m.y]: |     ...     pass | would both cause this exception.`（27 次）；`子进程失败（exit 1）: pyomo.common.errors.InvalidConstraintError: Invalid constraint expression. The constraint expression resolved to a trivial Bo`（23 次）。总体上，失败集中在上述占比最高的阶段，说明当前结果同时受到代码可执行性、数据 schema/索引理解和数学模型正确性的影响。
+
+结果文件为 `/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/scores/SIRL-Qwen2.5-32B-Gurobi.json`。
+
+## 5.8 SIRL-Qwen2.5-32B-COPT 重测结果与失败原因
+
+该模型已完成 19 个问题类的 6 次采样和全部实例评测，共覆盖 131 个可判定实例、711 个有效 instance-run；Pass@1 为 **0.00%**，Pass@6 为 **0.00%**。另有 90 个运行因参考状态不是 `optimal` 而不进入准确率分母。
+
+失败按最终原因归类如下：
+
+| 失败类型 | 次数 | 占失败比例 |
+|---|---:|---:|
+| 其他运行时或执行错误 | 512 | 72.01% |
+| 数据读取或业务索引错误 | 124 | 17.44% |
+| 求解器无可行解 | 20 | 2.81% |
+| API/依赖错误 | 18 | 2.53% |
+| 代码语法错误 | 16 | 2.25% |
+| 未提取出 build() | 13 | 1.83% |
+| 目标值不一致 | 8 | 1.13% |
+| **合计** | **711** | **100%** |
+
+最高频错误签名为：`子进程失败（exit 1）:     raise ValueError( | ValueError: Attempting to declare a block component using the name of a reserved attribute: | 	load`（80 次）；`子进程失败（exit 1）:     >>> if m.y in [m.x, m.y]: |     ...     pass | would both cause this exception.`（51 次）；`TypeError: unhashable type: 'dict'`（31 次）；`TypeError: Cannot create a Set from data that does not support __contains__.  Expected set-like object supporting collections.abc.Collection`（24 次）；`子进程失败（exit 1）: pyomo.common.errors.InvalidConstraintError: Invalid constraint expression. The constraint expression resolved to a trivial Bo`（23 次）。总体上，失败集中在上述占比最高的阶段，说明当前结果同时受到代码可执行性、数据 schema/索引理解和数学模型正确性的影响。
+
+结果文件为 `/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/scores/SIRL-Qwen2.5-32B-COPT.json`。
+
+## 5.9 ORLM-LLaMA-3-8B 重测结果与失败原因
+
+该模型已完成 19 个问题类的 6 次采样和全部实例评测，共覆盖 131 个可判定实例、786 个有效 instance-run；Pass@1 为 **0.00%**，Pass@6 为 **0.00%**。另有 90 个运行因参考状态不是 `optimal` 而不进入准确率分母。
+
+失败按最终原因归类如下：
+
+| 失败类型 | 次数 | 占失败比例 |
+|---|---:|---:|
+| 未提取出 build() | 519 | 66.03% |
+| API/依赖错误 | 135 | 17.18% |
+| 其他运行时或执行错误 | 108 | 13.74% |
+| 数据读取或业务索引错误 | 13 | 1.65% |
+| 代码语法错误 | 11 | 1.40% |
+| **合计** | **786** | **100%** |
+
+最高频错误签名为：`子进程失败（exit 1）:   File "/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/evals/ORLM-LLaMA-3-8B/Energy-VPP-`（90 次）；`子进程失败（exit 1）:   File "/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/evals/ORLM-LLaMA-3-8B/CBG-Camera-`（80 次）；`子进程失败（exit 1）:   File "/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/evals/ORLM-LLaMA-3-8B/ICT-DataCom`（72 次）；`NameError: name 'pyomo' is not defined`（53 次）；`AttributeError: 'ConcreteModel' object has no attribute 'addVars'`（48 次）。总体上，失败集中在上述占比最高的阶段，说明当前结果同时受到代码可执行性、数据 schema/索引理解和数学模型正确性的影响。
+
+结果文件为 `/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/scores/ORLM-LLaMA-3-8B.json`。
+
+## 5.10 LLMOPT-Qwen2.5-14B 重测结果与失败原因
+
+该模型已完成 19 个问题类的 6 次采样和全部实例评测，共覆盖 131 个可判定实例、753 个有效 instance-run；Pass@1 为 **0.00%**，Pass@6 为 **0.00%**。另有 90 个运行因参考状态不是 `optimal` 而不进入准确率分母。
+
+失败按最终原因归类如下：
+
+| 失败类型 | 次数 | 占失败比例 |
+|---|---:|---:|
+| 其他运行时或执行错误 | 398 | 52.86% |
+| 数据读取或业务索引错误 | 201 | 26.69% |
+| 代码语法错误 | 77 | 10.23% |
+| API/依赖错误 | 46 | 6.11% |
+| 未提取出 build() | 18 | 2.39% |
+| 求解器无可行解 | 8 | 1.06% |
+| 目标值不一致 | 5 | 0.66% |
+| **合计** | **753** | **100%** |
+
+最高频错误签名为：`TypeError: unhashable type: 'dict'`（113 次）；`KeyError: 'node.csv'`（40 次）；`SyntaxError: invalid syntax`（32 次）；`TypeError: list indices must be integers or slices, not str`（24 次）；`TypeError: 'int' object is not iterable`（21 次）。总体上，失败集中在上述占比最高的阶段，说明当前结果同时受到代码可执行性、数据 schema/索引理解和数学模型正确性的影响。
+
+结果文件为 `/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/scores/LLMOPT-Qwen2.5-14B.json`。
+
 ## 6. 关键观察
 
 ### 6.1 失败集中在代码适配层
