@@ -468,6 +468,69 @@ COPT 求解器本身的性能。结果文件为
 
 结果文件为 `/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/scores/LLMOPT-Qwen2.5-14B.json`。
 
+## 5.11 GPT-5.6-Sol 单轮无工具实验
+
+为估计基础模型在没有执行反馈和 agent 工具的条件下的表现，使用
+`gpt-5.6-sol` 完成了一轮独立控制实验。模型通过 `/home/chengyingying/.codex/config.toml`
+中的 `teamorouter` Responses provider 调用，reasoning effort 为 `low`。每个问题只生成
+1 份回复，不提供 `nl/annotations.md`，不授予 shell、文件读取或其他工具权限，也不将
+traceback 返回给模型。严格来说，这是 Codex CLI 单轮无工具条件，而不是脱离系统提示的
+原始 API bare model；因此本节结果用于控制比较，不直接替代第 5.3–5.10 节的微调模型
+Pass@6 结果。
+
+19 个问题类、146 个数据实例全部完成生成；19/19 份回复成功提取出 `build(data)`，
+审计事件中没有工具调用。131 个实例的参考状态为 `optimal`，其中 115 个运行可判定，
+16 个运行因当前环境缺少 `ipopt` 或 `couenne` 而记为 `unjudgeable`；另有 15 个实例的
+参考状态不是 `optimal`，不进入准确率分母。
+
+| 指标 | 数值 |
+|---|---:|
+| 问题级生成 | 19 |
+| 参考最优实例 | 131 |
+| 可判定 instance-run | 115 |
+| `unjudgeable` instance-run | 16 |
+| 通过 | 4 |
+| 失败 | 111 |
+| Pass@1（可判定分母） | **4/115 = 3.48%** |
+| 保守 Pass@1（全部参考最优实例） | **4/131 = 3.05%** |
+
+4 个通过实例为：
+
+- `CBG-Camera-JPEGQuantizationTable / inst_001`；
+- `CBG-Camera-JPEGQuantizationTable / inst_003`；
+- `ICT-DataCom-NetworkPlanning-CapacityExpansion / inst_005`；
+- `ICT-OpticalNetwork-NetworkPlanning-LinkProtection / inst_001`。
+
+失败按最终阶段归类如下：
+
+| 失败阶段 | 次数 | 占失败比例 |
+|---|---:|---:|
+| 代码执行错误 | 110 | 99.10% |
+| 目标值不一致 | 1 | 0.90% |
+| 未提取 `build()` | 0 | 0.00% |
+| 代码语法错误 | 0 | 0.00% |
+| 模型不可行 | 0 | 0.00% |
+| 执行超时 | 0 | 0.00% |
+| 可行性/交叉验证失败 | 0 | 0.00% |
+| **合计** | **111** | **100.00%** |
+
+代码执行错误主要来自 Pyomo 组件构造、变量/约束索引以及求解器子进程异常。例如，
+生成代码将 `load` 用作 ConcreteModel 组件名，触发 Pyomo 保留属性冲突；部分大规模
+实例还出现 HiGHS 子进程 `exit -6`。除 1 个目标值不一致的运行外，其余失败没有
+进入稳定的数学目标比较阶段，因此本轮 3.48% 的结果主要反映一次性代码生成和协议
+适配能力。
+
+评测初始并发运行得到 3/115，随后按与微调模型相同的单进程（`workers=1`）设置完整
+复评得到 4/115；两个结果的差异来自 HiGHS 子进程异常退出的资源/数值不稳定，而非
+模型重新生成。正式结果采用单进程复评值。由于每个问题只有一次 completion，本节
+不报告有统计意义的 Pass@6。
+
+生成、事件审计和实例结果分别保存在：
+
+- `/public/chengyingying/project/industry_mathopt_dataset/eval_results/bare_llm_sweep/generations/gpt-5.6-sol-low-noann-pass1/`；
+- `/public/chengyingying/project/industry_mathopt_dataset/eval_results/bare_llm_sweep/evals/gpt-5.6-sol-low-noann-pass1-sequential/`；
+- `/public/chengyingying/project/industry_mathopt_dataset/eval_results/bare_llm_sweep/scores/gpt-5.6-sol-low-noann-pass1-sequential.json`。
+
 ## 6. 关键观察
 
 ### 6.1 失败集中在代码适配层
