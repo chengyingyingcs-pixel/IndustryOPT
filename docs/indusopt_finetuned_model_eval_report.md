@@ -1,8 +1,8 @@
 # IndusOPT 微调模型闭卷评测中期报告
 
-生成时间：2026-09-02 03:33 UTC  
-数据集：`dataset/industry_mathopt_dataset`  
-结果根目录：`dataset/industry_mathopt_dataset/eval_results/finetuned_sweep/`  
+更新时间：2026-09-10 UTC<br>
+数据集：`/public/chengyingying/project/industry_mathopt_dataset`<br>
+结果根目录：`/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/`<br>
 评测状态：第 5.3–5.10 节所列 **8 个检查点已完成新一轮重测**；其余 3 个公开权重检查点尚未纳入本轮汇总。
 
 ## 1. 结论摘要
@@ -16,7 +16,8 @@
   - 总体 Pass@1：**1/6071 = 0.016%**（按两位小数为 **0.02%**）
 - 其中 7 个模型的 Pass@1 和 Pass@6 均为 **0.00%**。
 - 唯一产生通过记录的是 `SIRL-Qwen2.5-32B-Gurobi`：Pass@1 为 **0.14%**，Pass@6 为 **0.76%**；通过项对应 `Energy-VPP-DayAheadAdjustableLoadScheduling / inst_007`。
-- 失败主要发生在**代码执行与 API 适配层**，而不是全部都能归结为数学建模错误。
+- 失败主要发生在**代码执行阶段**：6070 次失败中有 4842 次（79.77%）属于 API、
+  Pyomo 构造、数据结构、索引或其他运行时错误，不能全部归结为数学建模错误。
 
 本报告使用的 11 个权重已经下载到本机 Hugging Face 缓存目录。具体部署方式、权重目录和加载代码见 **附录 A**。
 
@@ -63,7 +64,7 @@
 - 按当前 19 个问题类、146 个实例和每问题 6 次采样，一个完整重测模型理论上有：
   - 146 × 6 = **876** 个 model-instance 组合；
   - 131 × 6 = **786** 个参考状态为 `optimal` 的候选 instance-run；
-  - 15 × 6 = **90** 个不可判定 instance-run。
+  - 15 × 6 = **90** 个参考状态非 `optimal`、不进入分母的 instance-run。
 
 这里的 786 是理论候选数，不保证等于每个结果文件的实际 Pass@1 分母。若某次运行
 因缺少适用求解器、结果缺失或其他原因被记为 `unjudgeable`，它不会进入
@@ -187,8 +188,9 @@ OptiMind-SFT、StepORLM-Qwen3-8B 和 Qwen3-SIRL-4B 不再混入本表。
 - “评测 run 数”指已经写出 `result.json` 的问题级运行数。
 - Pass@6 的分母为 131 个可判定实例；SIRL-Qwen2.5-32B-Gurobi 仅有 1 个唯一实例
   至少一次通过，因此为 1/131 = 0.76%。
-- “可判定 instance-run”采用各小节正文及其结果文件的 `runs_scored`，所以第 5.4、
-  5.5 节分别为 781 和 777；两节失败明细表各合计为 786 的口径差异在第 5.1 节说明。
+- “可判定 instance-run”采用结果文件的 `runs_scored`。因缺少适用求解器而记为
+  `unjudgeable` 的记录不计入该列，也不计入失败明细；因此第 5.4、5.5 节分别为
+  781 和 777，而不是理论候选数 786。
 
 ## 4. 通过实例
 
@@ -208,54 +210,47 @@ SIRL-Qwen2.5-32B-COPT 有通过记录的结论，均已被第 5.7、5.8 节的�
 
 ### 5.1 总体失败分布
 
-失败按“问题类 run × 数据实例”统计，即一个生成 run 在一个实例上失败记一次。
-下表汇总第 5.3–5.10 节的 8 个新重测模型。为统一各节略有差异的分类名称，
-“Pyomo/API/模型构造错误”和“API/依赖错误”归入“API/依赖或 Pyomo 构造错误”；
-“其他运行时”“其他执行错误”归入“其他运行时或执行错误”；未能从明细中可靠
-细分的条目保留为“其他未分类失败”。
+失败按“问题类 run × 数据实例”统计，即一份生成代码在一个实例上失败记一次。
+下表汇总第 5.3–5.10 节的 8 个新重测模型，并按评测流水线中最先确定的最终失败
+阶段互斥归类。API、Pyomo 组件构造、数据结构、业务索引及其他运行时异常统一计入
+“代码执行错误”，避免依赖人工解释错误签名而造成各节口径漂移。
 
-| 失败类型 | 次数 | 占失败比例 |
+| 失败阶段 | 次数 | 占失败比例 |
 |---|---:|---:|
-| 其他运行时或执行错误 | 2260 | 37.15% |
-| API/依赖或 Pyomo 构造错误 | 1403 | 23.06% |
-| 数据读取或业务索引错误 | 1006 | 16.54% |
-| 未提取出 `build()` | 697 | 11.46% |
-| 代码语法错误 | 490 | 8.05% |
-| 其他未分类失败 | 143 | 2.35% |
-| 求解器无可行解 | 41 | 0.67% |
-| 目标值不一致 | 34 | 0.56% |
+| 代码执行错误 | 4842 | 79.77% |
+| 未提取出 `build()` | 656 | 10.81% |
+| 代码语法错误 | 490 | 8.07% |
+| 模型不可行 | 38 | 0.63% |
 | 执行超时 | 10 | 0.16% |
-| **合计** | **6084** | **100.00%** |
+| 可行性/交叉验证失败 | 0 | 0.00% |
+| 目标值不一致 | 34 | 0.56% |
+| **合计** | **6070** | **100.00%** |
 
-以上计数由第 5.3–5.10 节各失败表逐项相加得到，表示明细表记录的 **6084 个非通过
-终态**。它不完全等同于 Pass@1 的失败分母：第 5.4、5.5 节的失败明细表均合计为
-786，但对应结果文件的 `runs_scored` 分别为 781 和 777，合计有 14 个表内记录未进入
-准确率分母；现有明细没有给出这 14 条在分类表中的具体归属，因而不能无依据地从某个
-类别扣除。按 8 个结果文件的 headline 口径，共有 **6071** 个可判定 instance-run，
-其中通过 1 次、失败 6070 次，总体 Pass@1 为 **1/6071 = 0.016%**，失败率为
-**99.984%**。
+以上计数仅汇总最终 verdict 为 `fail` 的运行，不包含 `unjudgeable`。8 个结果文件
+共有 **6071** 个可判定 instance-run，其中通过 1 次、失败 6070 次，总体 Pass@1
+为 **1/6071 = 0.016%**，失败率为 **99.984%**。此外有 217 个参考状态为 `optimal`
+但因缺少适用求解器而记为 `unjudgeable` 的运行，以及 720 个参考状态不是 `optimal`
+的运行；二者均不进入 Pass@1 和本表的失败分母。
 
 ### 5.2 各模型失败类型
 
-| 模型 | 运行/执行错误 | 数据/索引错误 | API/Pyomo 构造 | 未提取 `build()` | 语法错误 | 目标不一致 | 无可行解 | 超时 | 其他未分类 |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| OptMATH-Qwen2.5-7B | 112 | 243 | 278 | 68 | 85 | 0 | 0 | 0 | 0 |
-| OptMATH-Qwen2.5-32B | 223 | 150 | 333 | 18 | 27 | 0 | 0 | 0 | 35 |
-| SIRL-Qwen2.5-7B-Gurobi | 285 | 177 | 150 | 0 | 73 | 6 | 0 | 1 | 94 |
-| SIRL-Qwen2.5-7B-COPT | 87 | 40 | 398 | 56 | 186 | 0 | 5 | 0 | 14 |
-| SIRL-Qwen2.5-32B-Gurobi | 535 | 58 | 45 | 5 | 15 | 15 | 8 | 9 | 0 |
-| SIRL-Qwen2.5-32B-COPT | 512 | 124 | 18 | 13 | 16 | 8 | 20 | 0 | 0 |
-| ORLM-LLaMA-3-8B | 108 | 13 | 135 | 519 | 11 | 0 | 0 | 0 | 0 |
-| LLMOPT-Qwen2.5-14B | 398 | 201 | 46 | 18 | 77 | 5 | 8 | 0 | 0 |
+| 模型 | 代码执行错误 | 未提取 `build()` | 语法错误 | 模型不可行 | 超时 | 可行性/交叉验证失败 | 目标值不一致 | 失败合计 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| OptMATH-Qwen2.5-7B | 633 | 68 | 85 | 0 | 0 | 0 | 0 | 786 |
+| OptMATH-Qwen2.5-32B | 736 | 18 | 27 | 0 | 0 | 0 | 0 | 781 |
+| SIRL-Qwen2.5-7B-Gurobi | 692 | 0 | 73 | 5 | 1 | 0 | 6 | 777 |
+| SIRL-Qwen2.5-7B-COPT | 544 | 56 | 186 | 0 | 0 | 0 | 0 | 786 |
+| SIRL-Qwen2.5-32B-Gurobi | 634 | 0 | 15 | 17 | 9 | 0 | 15 | 690 |
+| SIRL-Qwen2.5-32B-COPT | 680 | 0 | 16 | 7 | 0 | 0 | 8 | 711 |
+| ORLM-LLaMA-3-8B | 266 | 509 | 11 | 0 | 0 | 0 | 0 | 786 |
+| LLMOPT-Qwen2.5-14B | 657 | 5 | 77 | 9 | 0 | 0 | 5 | 753 |
 
 #### 5.2.1 失败类型定义与示例
 
-本表按“问题类 run × 数据实例”统计：一份生成代码在一个实例上失败记一次，而不是每份生成代码只记一次。下列类别按评测流水线中的最终失败原因归类，一次 instance-run 只计入一个类别；`unjudgeable` 实例不进入这些失败统计。
+本表按“问题类 run × 数据实例”统计：一份生成代码在一个实例上失败记一次，而不是每份生成代码只记一次。下列类别按评测流水线中的最终失败原因互斥归类，一次 instance-run 只计入一个类别；`unjudgeable` 实例不进入这些失败统计。
 
-- **其他运行时或执行错误**：代码已经通过提取和语法解析，但在模型构建或执行过程中抛出未单列的运行时异常，例如把字典直接传给 `Set` 触发 `TypeError: unhashable type: 'dict'`，或约束表达式退化为 Python 布尔值。
-- **数据读取或业务索引错误**：错误理解 `data` 层级、文件键名、字段类型或业务 ID。例如协议使用去掉扩展名的键，代码却访问 `data["parameters.json"]`；或者用连续整数访问字符串或稀疏业务索引。
+- **代码执行错误**：代码已经通过提取和语法解析，但在加载、模型构建或执行过程中抛出异常。该类统一包含 API/依赖、Pyomo 组件构造、数据读取、业务索引和其他运行时错误。例如使用 GurobiPy/COPT 风格的方法构造 Pyomo 模型、访问错误的数据键，或把字典直接传给 `Set`。这些具体错误仍可用于诊断，但不再作为相互排斥的主统计类别。
 - **未提取 `build()`**：模型回复中没有包含可提取的 Python 代码块，或没有定义指定的 `def build(data):`。例如只输出建模解释、定义 `create_model(data)`，或输出未闭合的代码块。此类失败发生在执行代码之前。
-- **API/依赖或 Pyomo 构造错误**：代码使用了当前协议不支持的求解器接口或依赖，或者错误调用 Pyomo 组件。典型情况包括把 GurobiPy/COPT 写法用于要求 Pyomo 的评测、从 `pyomo.environ` 导入不存在的名称，以及对 `ConcreteModel` 调用 `addVars()`、`addConstr()` 或 `optimize()`。
 - **代码语法错误**：Python 文件无法被解释器解析，例如缩进错误、括号未闭合或字符串未结束：
 
   ```python
@@ -264,20 +259,23 @@ SIRL-Qwen2.5-32B-COPT 有通过记录的结论，均已被第 5.7、5.8 节的�
       return model
   ```
 
-- **目标值不一致**：生成模型成功构建、求解并得到可检查的解，但其目标值与参考解的 `objective` 相对误差超过 `1e-6`。例如生成模型得到目标值 `1`，参考值为 `8`。常见原因是目标方向、目标项、数据列或索引映射写错，或遗漏约束导致目标过优。
-- **求解器无可行解**：模型构建成功，但求解器报告 `infeasible`，没有满足全部约束的解。例如把“每个任务恰好分配一次”错误写成 `sum(assign[t,m]) == 0`，或把容量上限与需求下限绑定到错误索引，都会造成模型不可行。
+- **模型不可行**：模型构建成功，但求解器没有返回可行解，或生成模型自身的解检查判定为不可行。例如把“每个任务恰好分配一次”错误写成 `sum(assign[t,m]) == 0`，或把容量上限与需求下限绑定到错误索引。
 - **执行超时**：代码进入求解阶段，但在规定的求解时间内没有完成。当前默认每个求解器上限为 900 秒；大规模 MILP、MINLP、过大的 Big-M 或搜索空间过大都可能触发此类失败。超时不必然说明模型数学上错误，也可能是求解难度超出预算。
-- **其他未分类失败**：对应第 5.4–5.6 节明细表中的“其他未分类错误”或“其他失败”。原始明细不足以稳定映射到数据、API、运行时或求解阶段，因此汇总时保留该类别。
+- **可行性/交叉验证失败**：求解器返回了解，但该解未通过生成模型自身的变量域、约束与目标一致性复核，或在能够映射到参考模型时明确违反参考约束。无法映射而记为 abstain 不属于失败。本轮该类别为 0。
+- **目标值不一致**：生成模型成功构建、求解并得到可检查的解，但其目标值与参考最优值不满足绝对/相对混合容差 `|a-b| <= max(1e-6, 1e-6 × max(|a|, |b|))`。常见原因是目标方向、目标项、数据列或索引映射写错，或遗漏约束导致目标过优。
 
-这些类别反映失败发生在流水线的不同阶段：未提取、语法、API、数据索引和多数运行时错误发生在求解前；求解器无可行解和超时发生在求解阶段；目标值不一致则表示代码已经推进到结果核验阶段。
+实际归类以 `generation.json` 的 `code_extracted` 以及 `result.json` 的 `verdict`、
+`reason` 和 `solver_timeout` 为准；人工诊断出的 API、数据或索引子类型不改变主统计
+类别。缺少适用求解器的记录属于 `unjudgeable`，不作为代码执行错误或其他失败计数。
 
 ## 5.3 OptMATH-Qwen2.5-7B 重测结果与失败原因
 
-在当前数据集版本（19 个问题类、131 个可判定实例、90 个不可判定实例）上，
+在当前数据集版本（19 个问题类、131 个参考最优实例、15 个参考非最优实例）上，
 `OptMATH-Qwen2.5-7B` 完成了 6 次采样，共 114 份问题级生成。103/114 份回复
 成功提取出 `build(data)`；每份代码随后在该问题的全部实例上执行。最终得到
 786 个可判定 instance-run，0 个通过，Pass@1 和 Pass@6 均为 0.00%。另有 90 个
-instance-run 因参考解仅为 `feasible` 而不进入准确率分母。
+instance-run 因参考状态不是 `optimal` 而不进入准确率分母，其中 66 个为
+`feasible`、24 个为 `heuristic`。
 
 早期结果曾因评测环境缺少 Pyomo 而无效；补齐 `pyomo 6.10.1` 和 `highspy 1.15.1`
 后，使用同一批生成代码完成了干净重测。下面的失败统计仅来自依赖修复后的有效运行，
@@ -285,11 +283,9 @@ instance-run 因参考解仅为 `feasible` 而不进入准确率分母。
 
 | 失败阶段 | 次数 | 占失败比例 |
 |---|---:|---:|
-| Pyomo/API/模型构造错误 | 278 | 35.37% |
-| 数据读取或业务索引错误 | 243 | 30.92% |
-| 其他执行错误 | 112 | 14.25% |
-| 代码语法错误 | 85 | 10.81% |
+| 代码执行错误 | 633 | 80.53% |
 | 未提取出 `build()` | 68 | 8.65% |
+| 代码语法错误 | 85 | 10.81% |
 | **合计** | **786** | **100%** |
 
 高频错误签名进一步显示，主要问题集中在以下几类：
@@ -303,27 +299,25 @@ instance-run 因参考解仅为 `feasible` 而不进入准确率分母。
 这些失败几乎全部发生在求解前，说明 0% 主要衡量的是模型对“Pyomo + 结构化工业
 数据 + 通用 `build(data)`”协议的适配能力，而不是在正确模型已经构建后对目标值或
 约束语义的纯优化能力。结果文件为
-`eval_results/finetuned_sweep/scores/OptMATH-Qwen2.5-7B.json`。
+`/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/scores/OptMATH-Qwen2.5-7B.json`。
 
 ## 5.4 OptMATH-Qwen2.5-32B 重测结果与失败原因
 
 在同一评测协议和数据集版本下，`OptMATH-Qwen2.5-32B` 完成了 6 次采样，覆盖
-19 个问题类、114 份问题级生成和 131 个可判定实例。结果文件中共有 781 个有效
-instance-run，5 个实例运行因参考解状态为 `feasible` 而不进入准确率分母。781 个
-有效运行全部失败，因此 Pass@1 和 Pass@6 均为 **0.00%**。
+19 个问题类、114 份问题级生成和 131 个参考最优实例。结果文件中共有 781 个可判定
+instance-run，全部失败，因此 Pass@1 和 Pass@6 均为 **0.00%**。另有 5 个参考状态
+为 `optimal` 的运行因环境缺少适用求解器而记为 `unjudgeable`；另有 90 个运行因
+参考状态不是 `optimal` 而不进入准确率分母。
 
 失败并非由评测环境缺少 Pyomo 引起：本次结果是在已安装 `pyomo 6.10.1` 和
 `highspy 1.15.1` 的环境中获得的。失败按最终错误签名统计如下：
 
-| 失败类型 | 次数 | 占失败比例 |
+| 失败阶段 | 次数 | 占失败比例 |
 |---|---:|---:|
-| Pyomo/求解器 API 混用或依赖接口错误 | 333 | 42.37% |
-| 其他运行时或变量构造错误 | 223 | 28.37% |
-| 数据键名、集合或业务索引错误 | 150 | 19.08% |
-| 未提取出 `build()` | 18 | 2.29% |
-| 代码语法错误 | 27 | 3.44% |
-| 其他未分类错误 | 35 | 4.46% |
-| **合计** | **786** | **100%** |
+| 代码执行错误 | 736 | 94.24% |
+| 未提取出 `build()` | 18 | 2.30% |
+| 代码语法错误 | 27 | 3.46% |
+| **合计** | **781** | **100%** |
 
 最常见的具体错误是：对 Pyomo `ConcreteModel` 调用 Gurobi 风格的
 `addConstr`（127 次）、`addVars`（55 次）或 `addVar`（55 次）；向 `IndexedVar`
@@ -333,58 +327,53 @@ instance-run，5 个实例运行因参考解状态为 `feasible` 而不进入准
 `INTEGER`、`BOOL`、`BOOLEAN` 等名称也反复出现。
 
 这些结果表明，32B 模型通常能够输出较完整的代码，但没有稳定遵守评测要求的
-`build(data)`、数据 schema 和 Pyomo 统一接口。约 90.5% 的失败发生在求解前的
-API、变量/组件构造或数据索引阶段，几乎没有进入目标值比较和约束交叉验证阶段；
+`build(data)`、数据 schema 和 Pyomo 统一接口。全部失败均发生在代码提取、语法
+或执行阶段，没有进入模型不可行、超时、可行性复核或目标值比较阶段；
 因此 0% 主要反映协议适配和代码可执行性不足，而不是在已正确构建的优化模型上的
 纯求解性能。结果文件为
-`eval_results/finetuned_sweep/scores/OptMATH-Qwen2.5-32B.json`。
+`/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/scores/OptMATH-Qwen2.5-32B.json`。
 
 ## 5.5 SIRL-Qwen2.5-7B-Gurobi 重测结果与失败原因
 
-该模型已完成 6 次采样，覆盖 19 个问题类、114 份问题级生成和 131 个可判定实例。
-共得到 777 个有效 instance-run，另有 9 个运行因参考解状态为 `feasible` 不进入
-准确率分母。有效运行中没有通过项，因此 Pass@1 和 Pass@6 均为 **0.00%**。
+该模型已完成 6 次采样，覆盖 19 个问题类、114 份问题级生成和 131 个参考最优实例。
+共得到 777 个可判定 instance-run，全部失败，因此 Pass@1 和 Pass@6 均为
+**0.00%**。另有 9 个参考状态为 `optimal` 的运行因环境缺少适用求解器而记为
+`unjudgeable`；另有 90 个运行因参考状态不是 `optimal` 而不进入准确率分母。
 
-786 个失败按最终错误原因归类如下：
+777 个失败按最终错误原因归类如下：
 
-| 失败类型 | 次数 | 占失败比例 |
+| 失败阶段 | 次数 | 占失败比例 |
 |---|---:|---:|
-| 其他运行时错误 | 285 | 36.26% |
-| 数据读取或业务索引错误 | 177 | 22.52% |
-| API/依赖错误 | 150 | 19.08% |
-| 代码语法错误 | 73 | 9.29% |
-| 其他失败（含代码执行阶段未细分错误） | 94 | 11.96% |
-| 目标值不一致 | 6 | 0.76% |
+| 代码执行错误 | 692 | 89.06% |
+| 代码语法错误 | 73 | 9.40% |
+| 模型不可行 | 5 | 0.64% |
 | 执行超时 | 1 | 0.13% |
-| **合计** | **786** | **100%** |
+| 目标值不一致 | 6 | 0.77% |
+| **合计** | **777** | **100%** |
 
 失败主要集中在求解前。模型经常误用 Pyomo 组件或求解器接口，错误读取数据文件
 键名，或将字符串/稀疏业务 ID 当作连续整数索引；部分生成还包含语法、变量构造
-和运行时异常。仅 6 个 instance-run 成功进入目标值比较阶段但目标不一致，1 个
-instance-run 超过求解时间限制。这表明该模型在当前统一 Pyomo、`build(data)` 和
-结构化工业数据协议下的代码适配性不足，0% 主要反映可执行性与接口遵循问题，而非
+和运行时异常。另有 5 个 instance-run 被判定为模型不可行，6 个成功进入目标值
+比较阶段但目标不一致，1 个超过求解时间限制。这表明该模型在当前统一 Pyomo、
+`build(data)` 和结构化工业数据协议下的代码适配性不足，0% 主要反映可执行性与接口遵循问题，而非
 单纯的优化求解质量。
 
-结果文件为 `eval_results/finetuned_sweep/scores/SIRL-Qwen2.5-7B-Gurobi.json`。
+结果文件为 `/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/scores/SIRL-Qwen2.5-7B-Gurobi.json`。
 
 ## 5.6 SIRL-Qwen2.5-7B-COPT 重测结果与失败原因
 
 `SIRL-Qwen2.5-7B-COPT` 已完成 6 次采样，覆盖 19 个问题类、114 份问题级生成和
-131 个可判定实例。共有 786 个有效 instance-run，全部未通过，因此 Pass@1 和
+131 个参考最优实例。共有 786 个可判定 instance-run，全部未通过，因此 Pass@1 和
 Pass@6 均为 **0.00%**。另有 90 个运行对应的参考状态不是 `optimal`，不进入准确率
 分母。
 
 786 个失败按最终错误签名归类如下：
 
-| 失败类型 | 次数 | 占失败比例 |
+| 失败阶段 | 次数 | 占失败比例 |
 |---|---:|---:|
-| API/依赖错误 | 398 | 50.64% |
-| 代码语法错误 | 186 | 23.66% |
-| 其他运行时错误 | 87 | 11.07% |
+| 代码执行错误 | 544 | 69.21% |
 | 未提取出 `build()` | 56 | 7.12% |
-| 数据读取或业务索引错误 | 40 | 5.09% |
-| 其他失败 | 14 | 1.78% |
-| 求解器无可行解 | 5 | 0.64% |
+| 代码语法错误 | 186 | 23.66% |
 | **合计** | **786** | **100%** |
 
 最常见的错误包括：生成代码对 Pyomo `ConcreteModel` 调用不兼容的 `addVars`（73
@@ -394,29 +383,26 @@ Pass@6 均为 **0.00%**。另有 90 个运行对应的参考状态不是 `optima
 43 次生成器表达式未加括号）。此外还出现把列表当作字典调用 `.keys()`、读取
 `data['node.csv']` 等错误数据结构访问。
 
-与 Gurobi 版本相比，该 COPT 微调模型的失败更集中在代码生成和接口适配：约
-74.3% 的失败属于 API/依赖或语法错误，只有 5 次进入求解器不可行判定，几乎没有
-进入目标值比较阶段。这说明在统一 Pyomo、`build(data)` 和当前依赖环境下，模型
-尚未稳定遵循可执行代码协议；0% 主要反映接口、依赖和代码生成质量问题，而非
+与 Gurobi 版本相比，该 COPT 微调模型的失败全部发生在代码提取、语法或执行阶段，
+没有进入模型不可行、超时、可行性复核或目标值比较阶段。这说明在统一 Pyomo、
+`build(data)` 和当前依赖环境下，模型尚未稳定遵循可执行代码协议；0% 主要反映
+接口、依赖和代码生成质量问题，而非
 COPT 求解器本身的性能。结果文件为
-`eval_results/finetuned_sweep/scores/SIRL-Qwen2.5-7B-COPT.json`。
+`/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/scores/SIRL-Qwen2.5-7B-COPT.json`。
 
 ## 5.7 SIRL-Qwen2.5-32B-Gurobi 重测结果与失败原因
 
-该模型已完成 19 个问题类的 6 次采样和全部实例评测，共覆盖 131 个可判定实例、691 个有效 instance-run；Pass@1 为 **0.14%**，Pass@6 为 **0.76%**。另有 90 个运行因参考状态不是 `optimal` 而不进入准确率分母。
+该模型已完成 19 个问题类的 6 次采样和全部实例评测，共覆盖 131 个参考最优实例和 691 个可判定 instance-run，其中 1 个通过、690 个失败；Pass@1 为 **0.14%**，Pass@6 为 **0.76%**。另有 95 个参考状态为 `optimal` 的运行因环境缺少适用求解器而记为 `unjudgeable`，另有 90 个运行因参考状态不是 `optimal` 而不进入准确率分母。
 
 失败按最终原因归类如下：
 
-| 失败类型 | 次数 | 占失败比例 |
+| 失败阶段 | 次数 | 占失败比例 |
 |---|---:|---:|
-| 其他运行时或执行错误 | 535 | 77.54% |
-| 数据读取或业务索引错误 | 58 | 8.41% |
-| API/依赖错误 | 45 | 6.52% |
-| 目标值不一致 | 15 | 2.17% |
+| 代码执行错误 | 634 | 91.88% |
 | 代码语法错误 | 15 | 2.17% |
+| 模型不可行 | 17 | 2.46% |
 | 执行超时 | 9 | 1.30% |
-| 求解器无可行解 | 8 | 1.16% |
-| 未提取出 build() | 5 | 0.72% |
+| 目标值不一致 | 15 | 2.17% |
 | **合计** | **690** | **100%** |
 
 最高频错误签名为：`子进程失败（exit -6）:   Bound   [1e+00, 1e+00] |   RHS     [1e+00, 1e+00] | terminate called without an active exception`（51 次）；`TypeError: unhashable type: 'dict'`（35 次）；`子进程失败（exit -6）: Running HiGHS 1.15.1 (git hash: 04024d7): Copyright (c) 2026 under MIT licence terms | Includes third-party software compone`（28 次）；`子进程失败（exit 1）:     >>> if m.y in [m.x, m.y]: |     ...     pass | would both cause this exception.`（27 次）；`子进程失败（exit 1）: pyomo.common.errors.InvalidConstraintError: Invalid constraint expression. The constraint expression resolved to a trivial Bo`（23 次）。总体上，失败集中在上述占比最高的阶段，说明当前结果同时受到代码可执行性、数据 schema/索引理解和数学模型正确性的影响。
@@ -425,18 +411,15 @@ COPT 求解器本身的性能。结果文件为
 
 ## 5.8 SIRL-Qwen2.5-32B-COPT 重测结果与失败原因
 
-该模型已完成 19 个问题类的 6 次采样和全部实例评测，共覆盖 131 个可判定实例、711 个有效 instance-run；Pass@1 为 **0.00%**，Pass@6 为 **0.00%**。另有 90 个运行因参考状态不是 `optimal` 而不进入准确率分母。
+该模型已完成 19 个问题类的 6 次采样和全部实例评测，共覆盖 131 个参考最优实例和 711 个可判定 instance-run，全部失败；Pass@1 和 Pass@6 均为 **0.00%**。另有 75 个参考状态为 `optimal` 的运行因环境缺少适用求解器而记为 `unjudgeable`，另有 90 个运行因参考状态不是 `optimal` 而不进入准确率分母。
 
 失败按最终原因归类如下：
 
-| 失败类型 | 次数 | 占失败比例 |
+| 失败阶段 | 次数 | 占失败比例 |
 |---|---:|---:|
-| 其他运行时或执行错误 | 512 | 72.01% |
-| 数据读取或业务索引错误 | 124 | 17.44% |
-| 求解器无可行解 | 20 | 2.81% |
-| API/依赖错误 | 18 | 2.53% |
+| 代码执行错误 | 680 | 95.64% |
 | 代码语法错误 | 16 | 2.25% |
-| 未提取出 build() | 13 | 1.83% |
+| 模型不可行 | 7 | 0.98% |
 | 目标值不一致 | 8 | 1.13% |
 | **合计** | **711** | **100%** |
 
@@ -446,37 +429,38 @@ COPT 求解器本身的性能。结果文件为
 
 ## 5.9 ORLM-LLaMA-3-8B 重测结果与失败原因
 
-该模型已完成 19 个问题类的 6 次采样和全部实例评测，共覆盖 131 个可判定实例、786 个有效 instance-run；Pass@1 为 **0.00%**，Pass@6 为 **0.00%**。另有 90 个运行因参考状态不是 `optimal` 而不进入准确率分母。
+该模型已完成 19 个问题类的 6 次采样和全部实例评测，共覆盖 131 个参考最优实例和 786 个可判定 instance-run，全部失败；Pass@1 和 Pass@6 均为 **0.00%**。另有 90 个运行因参考状态不是 `optimal` 而不进入准确率分母。
 
 失败按最终原因归类如下：
 
-| 失败类型 | 次数 | 占失败比例 |
+| 失败阶段 | 次数 | 占失败比例 |
 |---|---:|---:|
-| 未提取出 build() | 519 | 66.03% |
-| API/依赖错误 | 135 | 17.18% |
-| 其他运行时或执行错误 | 108 | 13.74% |
-| 数据读取或业务索引错误 | 13 | 1.65% |
+| 代码执行错误 | 266 | 33.84% |
+| 未提取出 `build()` | 509 | 64.76% |
 | 代码语法错误 | 11 | 1.40% |
 | **合计** | **786** | **100%** |
 
-最高频错误签名为：`子进程失败（exit 1）:   File "/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/evals/ORLM-LLaMA-3-8B/Energy-VPP-`（90 次）；`子进程失败（exit 1）:   File "/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/evals/ORLM-LLaMA-3-8B/CBG-Camera-`（80 次）；`子进程失败（exit 1）:   File "/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/evals/ORLM-LLaMA-3-8B/ICT-DataCom`（72 次）；`NameError: name 'pyomo' is not defined`（53 次）；`AttributeError: 'ConcreteModel' object has no attribute 'addVars'`（48 次）。总体上，失败集中在上述占比最高的阶段，说明当前结果同时受到代码可执行性、数据 schema/索引理解和数学模型正确性的影响。
+在能够提取 `build()` 的回复中，常见执行错误包括
+`NameError: name 'pyomo' is not defined`（53 次）和
+`AttributeError: 'ConcreteModel' object has no attribute 'addVars'`（48 次）。但更主要的
+问题仍是未提取出 `build()`：该阶段占 509/786（64.76%）。本轮没有 ORLM 运行进入
+模型不可行、超时、可行性复核或目标值比较阶段，因此不能从这些结果单独判断其在
+可执行模型上的数学建模正确率。
 
 结果文件为 `/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/scores/ORLM-LLaMA-3-8B.json`。
 
 ## 5.10 LLMOPT-Qwen2.5-14B 重测结果与失败原因
 
-该模型已完成 19 个问题类的 6 次采样和全部实例评测，共覆盖 131 个可判定实例、753 个有效 instance-run；Pass@1 为 **0.00%**，Pass@6 为 **0.00%**。另有 90 个运行因参考状态不是 `optimal` 而不进入准确率分母。
+该模型已完成 19 个问题类的 6 次采样和全部实例评测，共覆盖 131 个参考最优实例和 753 个可判定 instance-run，全部失败；Pass@1 和 Pass@6 均为 **0.00%**。另有 33 个参考状态为 `optimal` 的运行因环境缺少适用求解器而记为 `unjudgeable`，另有 90 个运行因参考状态不是 `optimal` 而不进入准确率分母。
 
 失败按最终原因归类如下：
 
-| 失败类型 | 次数 | 占失败比例 |
+| 失败阶段 | 次数 | 占失败比例 |
 |---|---:|---:|
-| 其他运行时或执行错误 | 398 | 52.86% |
-| 数据读取或业务索引错误 | 201 | 26.69% |
+| 代码执行错误 | 657 | 87.25% |
+| 未提取出 `build()` | 5 | 0.66% |
 | 代码语法错误 | 77 | 10.23% |
-| API/依赖错误 | 46 | 6.11% |
-| 未提取出 build() | 18 | 2.39% |
-| 求解器无可行解 | 8 | 1.06% |
+| 模型不可行 | 9 | 1.20% |
 | 目标值不一致 | 5 | 0.66% |
 | **合计** | **753** | **100%** |
 
@@ -496,48 +480,52 @@ from pyomo.environ import COPT
 import gurobipy as gp
 ```
 
-这些不是 Pyomo 的可用接口。部分模型还会把 Gurobi API 和 Pyomo API 混用，例如同时出现 `gp.ConcreteModel()`、`addVars()`、`pyomo.environ.ConcreteModel` 等风格。
+前两个导入不是有效的 Pyomo 接口；`gurobipy` 本身是有效的 Gurobi 原生接口，但不符合
+本评测要求的 Pyomo `build(data)` 协议。部分模型还会把 Gurobi API 和 Pyomo API
+混用，例如同时出现 `gp.ConcreteModel()`、`addVars()`、
+`pyomo.environ.ConcreteModel` 等风格。
 
 因此，0% 不应机械理解为这些模型的数学建模能力完全为零；它表示在当前 IndusOPT 闭卷、一次性生成、Pyomo 统一执行协议下无法通过。
 
 ### 6.2 `build()` 提取失败非常突出
 
-按生成文件统计，代码提取成功率如下：
+按第 5.3–5.10 节 8 个重测模型的 `generation.json` 统计，问题级回复中的代码提取
+结果如下。这里统计的是 114 份回复能否提取 `build()`，不同于第 5 节按数据实例
+统计的失败次数。
 
-| 模型 | 可提取 `build()` / 108 |
-|---|---:|
-| OptMATH-Qwen2.5-7B | 98 |
-| OptMATH-Qwen2.5-32B | 105 |
-| SIRL-Qwen2.5-7B-Gurobi | 107 |
-| SIRL-Qwen2.5-7B-COPT | 105 |
-| SIRL-Qwen2.5-32B-Gurobi | 108 |
-| SIRL-Qwen2.5-32B-COPT | 108 |
-| ORLM-LLaMA-3-8B | 46 |
-| LLMOPT-Qwen2.5-14B | 108 |
-| OptiMind-SFT | 100 |
-| StepORLM-Qwen3-8B | 6 |
-| Qwen3-SIRL-4B | 104 |
+| 模型 | 可提取 `build()` / 114 | 提取率 |
+|---|---:|---:|
+| OptMATH-Qwen2.5-7B | 103 | 90.35% |
+| OptMATH-Qwen2.5-32B | 110 | 96.49% |
+| SIRL-Qwen2.5-7B-Gurobi | 114 | 100.00% |
+| SIRL-Qwen2.5-7B-COPT | 108 | 94.74% |
+| SIRL-Qwen2.5-32B-Gurobi | 114 | 100.00% |
+| SIRL-Qwen2.5-32B-COPT | 114 | 100.00% |
+| ORLM-LLaMA-3-8B | 40 | 35.09% |
+| LLMOPT-Qwen2.5-14B | 113 | 99.12% |
 
-最明显的是：
+最明显的是 `ORLM-LLaMA-3-8B`，仅 40/114 份回复能提取出合规 `build()`。
+未纳入本轮重测汇总的 OptiMind-SFT、StepORLM-Qwen3-8B 和 Qwen3-SIRL-4B 不在
+本表列出。
 
-- `StepORLM-Qwen3-8B` 仅 6/108 次能提取出合规 `build()`；
-- `ORLM-LLaMA-3-8B` 仅 46/108 次能提取出合规 `build()`。
+提取失败通常是模型输出了过长推理、错误模板或没有包含指定 Python 函数，而不是
+求解阶段失败。
 
-这两类失败大多是模型输出了过长推理、错误模板或没有包含指定 Python 函数，而不是求解阶段失败。
+### 6.3 SIRL-32B-Gurobi 是唯一产生通过记录的模型
 
-### 6.3 SIRL-32B 相对最好，但结果未完成
+8 个模型均已完成 114 份问题级生成和全部实例评测。其中：
 
-在已落盘结果中：
+- `SIRL-Qwen2.5-32B-Gurobi` 产生 1 次通过，Pass@1 为 0.14%，Pass@6 为 0.76%；
+- `SIRL-Qwen2.5-32B-COPT` 和其余 6 个模型均为 0 次通过。
 
-- `SIRL-Qwen2.5-32B-Gurobi` 已产生 2 次通过；
-- `SIRL-Qwen2.5-32B-COPT` 已产生 4 次通过；
-- 其余完整模型均为 0 通过。
+因此当前结果不支持旧版“两种 SIRL-32B 均产生通过”的结论。由于只有 1 次通过，
+也不足以据此将优势稳定归因于模型规模或求解器反馈强化学习。
 
-这与这两个模型使用了求解器反馈的 RL 训练目标相符。但二者只完成 73/108 和 68/108，不能作为最终排名。
+### 6.4 32B 模型有更多运行进入目标值比较阶段
 
-### 6.4 32B 模型更多进入目标值比较阶段
-
-`SIRL-Qwen2.5-32B-Gurobi` 有 82 次“目标值不一致”，`SIRL-Qwen2.5-32B-COPT` 有 32 次。这说明相比多数 7B 模型，它们有更多生成代码能跑到求解和目标值比较阶段，但仍然存在建模目标、约束或数据映射错误。
+`SIRL-Qwen2.5-32B-Gurobi` 有 15 次“目标值不一致”，
+`SIRL-Qwen2.5-32B-COPT` 有 8 次。这说明相比多数 7B 模型，它们有更多生成代码能
+运行到求解和目标值比较阶段，但仍存在建模目标、约束或数据映射错误。
 
 ### 6.5 工业级实例比常见 OR 基准更难
 
@@ -561,30 +549,38 @@ import gurobipy as gp
 3. **统一使用 Pyomo 接口。**  
    这对习惯 GurobiPy / COPT 的微调模型不利，但保证了所有模型在同一个执行器、同一组求解器和同一判定规则下比较。
 
-4. **部分结果不可直接排名。**  
-   SIRL-32B 两个变体尚未完成 108/108，其 Pass@6 只基于当前已评测到的实例子集。
+4. **求解器可用性会改变 Pass@1 分母。**<br>
+   8 个模型均已完成生成和实例评测，但部分生成模型需要当前环境没有安装的求解器。
+   共有 217 个参考状态为 `optimal` 的运行因此记为 `unjudgeable`；各模型的
+   `runs_scored` 为 691–786，横向比较时必须同时查看分母。
 
 5. **0% 不等于原生 pipeline 能力为 0。**  
-   例如 OptiMind-SFT 的模型卡明确面向 `gurobipy` 输出。若使用原生 Gurobi 执行器和对应 prompt，结果可能显著不同。
+   例如未纳入本轮重测汇总的 OptiMind-SFT，其模型卡明确面向 `gurobipy` 输出。
+   若使用原生 Gurobi 执行器和对应 prompt，结果可能显著不同。
 
 6. **结果受上下文窗口影响。**  
    `ORLM-LLaMA-3-8B` 原生上下文为 8192，比其他模型短；这会影响其长 prompt 生成质量。
 
 ## 8. 后续建议
 
-1. **补完两个 SIRL-32B 变体**  
-   将 73/108 和 68/108 跑到 108/108 后再出最终排名。
+1. **完成其余 3 个检查点的新版本重测**<br>
+   在当前 19 个问题类、146 个实例的版本上重测 OptiMind-SFT、StepORLM-Qwen3-8B
+   和 Qwen3-SIRL-4B，再扩展主结果表。
 
-2. **增加“原生 solver pipeline”对照**  
+2. **补齐缺失的求解器后复判**<br>
+   当前有 217 个参考状态为 `optimal` 的运行因缺少适用求解器而不可判定。补齐
+   Ipopt、SCIP 或 Couenne 后，应仅复跑这些记录并重新生成分母和失败统计。
+
+3. **增加“原生 solver pipeline”对照**<br>
    对 GurobiPy / COPT 风格模型使用其原生 prompt 与执行器，区分“建模错误”和“协议适配错误”。
 
-3. **增加格式归一化层**  
+4. **增加格式归一化层**<br>
    在不改变数学语义的前提下，尝试把 `gurobipy`、`coptpy` 输出转换成 Pyomo 或直接接原生求解器。
 
-4. **增加一轮受限 traceback 修复**  
+5. **增加一轮受限 traceback 修复**<br>
    当前结果主要衡量一次性建模能力。可以另设 1–3 轮修复协议，观察执行失败能被恢复的比例。
 
-5. **报告分层指标**  
+6. **报告分层指标**<br>
    建议同时给出：
    - 代码提取率；
    - 可执行率；
@@ -595,27 +591,28 @@ import gurobipy as gp
 
 ## 9. 结果位置
 
-### 9.1 OptMATH-Qwen2.5-7B 高生成长度复测
+### 9.1 历史长输出复测（旧数据版本，不纳入主结果）
 
-为检验输出截断对 `OptMATH-Qwen2.5-7B` 的影响，另跑一次 `max_tokens=24576`（原为 `12288`）。旧结果已备份在：
-
-- `eval_results/finetuned_sweep/generations/OptMATH-Qwen2.5-7B_max12288_20260903-173122/`
-- `eval_results/finetuned_sweep/evals/OptMATH-Qwen2.5-7B_max12288_20260903-173122/`
-- `eval_results/finetuned_sweep/scores/OptMATH-Qwen2.5-7B_max12288_20260903-173122.json`
+在此前 18 个问题类、138 个实例的数据版本上，曾为检验输出截断对
+`OptMATH-Qwen2.5-7B` 的影响，将 `max_tokens` 从 12288 提高到 24576。该实验使用
+108 份问题级生成和 738 个可判定 instance-run，结果如下：
 
 | 配置 | 可提取 `build()` / 108 | 可判定 instance-run | 通过数 | Pass@1 | Pass@6 | 结论 |
 |---|---:|---:|---:|---:|---:|---|
 | `max_tokens=12288` | 94 | 738 | 0 | 0.00% | 0.00% | 原结果 |
 | `max_tokens=24576` | 98 | 738 | 0 | 0.00% | 0.00% | 复测 |
 
-提高生成长度后，提取失败从 14 个生成降到 10 个生成，但 108/108 个生成仍因 `length` 截断，平均输出约 24551 token。Pass@1 / Pass@6 保持为 0；738 个失败 instance-run 的细分见第 5.3 节。该复测说明单纯提高 `max_tokens` 不能解决该模型在本协议下的适配与建模错误。
+提高生成长度后，提取失败从 14 个生成降到 10 个生成，但 108/108 个生成仍因
+`length` 截断，平均输出约 24551 token。Pass@1 / Pass@6 保持为 0。该结果仅用于
+历史长度消融，不能与第 3 节当前数据版本的结果合并；其原备份路径在当前结果根目录
+中已无法检出。
 
 | 内容 | 路径 |
 |---|---|
-| 生成 prompt / response / model | `dataset/industry_mathopt_dataset/eval_results/finetuned_sweep/generations/` |
-| 每个模型执行结果 | `dataset/industry_mathopt_dataset/eval_results/finetuned_sweep/evals/` |
-| 汇总日志 | `dataset/industry_mathopt_dataset/eval_results/finetuned_sweep/*.log` |
-| 数据集问题目录 | `dataset/industry_mathopt_dataset/domains/` |
+| 生成 prompt / response / model | `/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/generations/` |
+| 每个模型执行结果 | `/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/evals/` |
+| 模型分数 | `/public/chengyingying/project/industry_mathopt_dataset/eval_results/finetuned_sweep/scores/` |
+| 数据集问题目录 | `/public/chengyingying/project/industry_mathopt_dataset/domains/` |
 
 ## 10. 检查点对应关系
 
@@ -695,7 +692,7 @@ export HF_HUB_OFFLINE=1
 本次评测的生成脚本已经内置了别名到 Hugging Face 权重的映射。设置缓存目录后，可直接运行：
 
 ```bash
-cd /public/chengyingying/project/IndustryOPT/dataset/industry_mathopt_dataset
+cd /public/chengyingying/project/industry_mathopt_dataset
 export HF_HOME=/public/chengyingying/hf_cache
 export HF_TOKEN=hf_xxx
 
