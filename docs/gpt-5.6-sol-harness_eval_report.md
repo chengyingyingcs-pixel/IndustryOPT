@@ -2,7 +2,7 @@
 
 ## 1. 实验概述
 
-本报告总结 Codex CLI harness 调用 `gpt-5.6-sol`、`reasoning_effort=high` 完成 IndustryOPT 数学优化建模任务的结果。评测使用带 annotations 的中文输入，模型为每个问题类生成一份通用 Pyomo `model.py`，随后在全部数据实例上独立构建并求解。生成阶段已完成，求解阶段复用了已有代码，未重新调用模型生成代码。
+本报告总结 Codex CLI harness 调用 `gpt-5.6-sol`、`reasoning_effort=high` 完成 IndustryOPT 数学优化建模任务的结果。评测使用带 annotations 的中文输入，模型为每个问题类生成一份通用 Pyomo 候选 `model.py`，随后在全部数据实例上独立构建并求解。生成阶段已完成，求解阶段复用了已有候选代码，未重新调用模型生成代码。本文所称“候选 `model.py`”均指 Codex 的被测输出，不是数据集自带的参考模型 `domains/<问题类>/code/model.py`。
 
 评测批次：`gpt-5.6-sol-high-withann-pass1`。生成时间为 2026-09-11，评测结果目录为：
 
@@ -14,10 +14,10 @@
 | --- | --- |
 | 模型 | `gpt-5.6-sol` |
 | 推理强度 | `high` |
-| Harness | Codex CLI harness；隔离工作区；允许命令执行和文件修改 |
+| Harness | Codex CLI harness；每个问题类使用独立工作目录；允许在其中执行命令和修改候选代码 |
 | 输入语言 | 中文；`with_annotations=true` |
 | 问题类 | 19 个 |
-| 生成次数 | 每个问题类 1 次，共 19 份通用 `model.py` |
+| 生成次数 | 每个问题类 1 次，共 19 份通用候选 `model.py` |
 | 建模接口 | Pyomo `ConcreteModel`，函数 `build(data: dict)` |
 | 单个求解器时限 | 7200 秒（2 小时） |
 | 求解器轮换 | 每个实例最多 3 个候选求解器 |
@@ -27,7 +27,7 @@
 | 求解器顺序 | LP/MILP：`appsi_highs` → `scip`；含整数非线性：`scip` → `couenne`；连续 QP/NLP：`ipopt` → `couenne` |
 | 求解子进程内存上限 | 10 GB 地址空间 |
 
-在补测批次中，复用了本批次已生成的 `model.py`，没有重新调用模型生成代码；补测使用已安装的 SCIP 10.0.3、IPOPT 3.14.19 和 Couenne 0.5.8，单实例求解时限仍为 7200 秒。
+在补测批次中，复用了本批次已生成的候选 `model.py`，没有重新调用模型生成代码；补测使用已安装的 SCIP 10.0.3、IPOPT 3.14.19 和 Couenne 0.5.8，单实例求解时限仍为 7200 秒。
 
 ### 2.1 生成建模代码的提示词
 
@@ -62,7 +62,25 @@ response should briefly report completion; model.py is the evaluated artifact.
 
 提示词本身不内联题面和数据，而是要求 Codex 在工作区读取文件。本报告对应的 `with_annotations=true` 批次为每个问题类提供：`statement.md`（来自 `nl/statement.md`）、`annotations.md`（来自 `nl/annotations.md`）、`data_README.md`（来自 `data/README.md`）、第一个实例的完整 JSON/CSV/MTX 文件（位于 `sample_data/`），以及通用的 `validate_model.py`。提示词要求模型反复运行该校验器，直到语法、导入、数据解析、模型构建和结构检查均通过。
 
-工作区不提供 `formulation/model.md`、参考 `code/model.py`、`solution/*.json` 或其他实例的数据。提示词还明确禁止查看父目录、绝对路径、环境变量、网络资源、隐藏参考模型和参考解，也禁止修改任务文件及校验器。Codex 可以在隔离工作区内查看给定文件、执行命令并迭代修改 `model.py`；最终评测对象是其实际写入的 `model.py`，终端回复只用于简要报告完成情况。每个问题类目录中的 `prompt.txt`、`events.jsonl`、`response.md` 和 `record.json` 分别保存了原始提示词、完整工具事件、最终回复和生成元数据，因而可以逐次审计生成过程。
+#### 工作区位置与隔离边界
+
+每个问题类的 Codex 工作区位于以下路径，其中 `<问题类>` 替换为数据集问题类名称：
+
+```text
+/public/chengyingying/project/industry_mathopt_dataset/eval_results/harness_sweep/generations/gpt-5.6-sol-high-withann-pass1/<问题类>/workspace/
+```
+
+例如，主动悬架问题使用：
+
+```text
+/public/chengyingying/project/industry_mathopt_dataset/eval_results/harness_sweep/generations/gpt-5.6-sol-high-withann-pass1/Auto-Vehicle-ActiveSuspensionBalance/workspace/
+```
+
+该目录虽然位于 `industry_mathopt_dataset` 仓库树下的 `eval_results/` 中，但与原始数据集目录 `domains/<问题类>/` 是两个不同目录。Harness 先把允许使用的题面、annotations、数据说明和第一个实例复制到工作区，Codex 的当前工作目录通过 `-C <workspace>` 指向该处；候选代码也只在工作区内生成。因此，本实验实现了**工作目录和输入材料层面的隔离**，Codex 看到的是经过筛选的副本，而不是直接在原始 `domains/` 目录中工作。
+
+需要说明的是，这一批正式生成因受限沙箱曾出现 Linux namespace 创建失败，最终使用 Codex CLI 的 `danger-full-access` 文件系统权限运行。因此上述隔离不是操作系统权限强制的安全沙箱：理论上进程仍有能力访问工作区以外的路径，越界限制主要由提示词明确规定，并由 `events.jsonl` 审计。对本批 19 个问题类的工具事件复核未发现打开 `domains/`、参考 `code/model.py` 或 `solution/*.json` 内容的命令；工作区外的显式绝对路径用于调用指定 Python 解释器。不过，9 个问题类的会话运行过 `git status` 或包含该命令的检查，它们能够向上发现外层仓库并显示部分文件路径及状态，说明本批并未做到对原始仓库完全不可感知。故本报告将其表述为“独立工作目录/输入材料隔离”，不将其表述为“文件系统硬隔离”或“严格闭卷沙箱”。
+
+工作区不提供 `formulation/model.md`、数据集参考模型 `domains/<问题类>/code/model.py`、`solution/*.json` 或其他实例的数据。提示词还明确禁止查看父目录、绝对路径、环境变量、网络资源、隐藏参考模型和参考解，也禁止修改任务文件及校验器。Codex 可以在该独立工作区内查看给定文件、执行命令并迭代修改候选 `workspace/model.py`；校验通过后，harness 将它复制为该问题类生成目录下的候选 `model.py` 归档副本，后续批量求解评测使用该副本。数据集的 `domains/<问题类>/code/model.py` 是单独保存的标准参考实现，仅供参考解生成和交叉验证使用，不是 Codex 生成或修改的文件。终端回复只用于简要报告完成情况。每个问题类生成目录中的 `prompt.txt`、`events.jsonl`、`response.md` 和 `record.json` 分别保存了原始提示词、完整工具事件、最终回复和生成元数据，因而可以逐次审计生成过程。
 
 ## 3. 评测判定标准
 
@@ -156,10 +174,10 @@ response should briefly report completion; model.py is the evaluated artifact.
 ## 9. 结果与复现信息
 
 - 生成元数据：`/public/chengyingying/project/industry_mathopt_dataset/eval_results/harness_sweep/generations/gpt-5.6-sol-high-withann-pass1/generation.json`
-- 生成代码：上述目录下各问题类的 `model.py`
+- 候选生成代码：上述生成元数据目录下各问题类的 `model.py`（由对应 `workspace/model.py` 校验后复制归档；不同于 `domains/<问题类>/code/model.py` 参考实现）
 - 评测结果：`/public/chengyingying/project/industry_mathopt_dataset/eval_results/harness_sweep/evals/gpt-5.6-sol-high-withann-pass1-timeout7200-sequential/*/run1/result.json`
 - 补测结果：`/public/chengyingying/project/industry_mathopt_dataset/eval_results/harness_sweep/reruns/gpt-5.6-sol-high-withann-pass1-scip-couenne-timeout7200-20260913/`
 - 评测日志：同目录各问题类下的 `run1/eval_stdout.log`
 - 评测实现：`/public/chengyingying/project/industry_mathopt_dataset/tools/eval/run_eval.py`
 
-本轮求解使用现成生成代码，可通过 `--from-code` 复跑；若仅调整求解器、资源或 `--timeout`，无需重新生成模型代码。
+本轮求解使用现成候选代码，可通过 `--from-code` 复跑；若仅调整求解器、资源或 `--timeout`，无需重新生成候选模型代码。
