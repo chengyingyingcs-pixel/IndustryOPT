@@ -29,6 +29,41 @@
 
 在补测批次中，复用了本批次已生成的 `model.py`，没有重新调用模型生成代码；补测使用已安装的 SCIP 10.0.3、IPOPT 3.14.19 和 Couenne 0.5.8，单实例求解时限仍为 7200 秒。
 
+### 2.1 生成建模代码的提示词
+
+模型生成阶段由 Codex CLI harness 为每个问题类建立独立工作区，并分别调用一次模型。所有问题类使用同一条英文提示词；其中 Python 解释器路径已经展开后的原文如下：
+
+```text
+You are being evaluated as a Codex modeling harness.
+
+Work only in the current workspace. Do not inspect parent directories, absolute paths,
+environment variables, network resources, hidden reference models, or reference solutions.
+Do not modify task files or validate_model.py.
+
+Read statement.md, annotations.md when present, data_README.md, and sample_data/. Implement
+a general Pyomo model for every instance of this problem in model.py. The required API is:
+
+    def build(data: dict) -> pyomo.environ.ConcreteModel
+
+Use only Python's standard library and pyomo.environ. Do not invoke a solver inside build().
+Do not hard-code values from the sample instance. Multi-file input is keyed by filename stem,
+and CSV rows are dictionaries of strings. Use actual identifiers from the data instead of
+assuming consecutive integer indices.
+
+Iterate with this command until syntax, import, data parsing, construction, and structural
+validation pass:
+
+    /public/chengyingying/conda_envs/inferopt-py311/bin/python validate_model.py
+
+Before finishing, inspect model.py for Pyomo reserved component names, invalid indexing,
+empty extrema, and constraints that accidentally evaluate to a Python bool. Your final
+response should briefly report completion; model.py is the evaluated artifact.
+```
+
+提示词本身不内联题面和数据，而是要求 Codex 在工作区读取文件。本报告对应的 `with_annotations=true` 批次为每个问题类提供：`statement.md`（来自 `nl/statement.md`）、`annotations.md`（来自 `nl/annotations.md`）、`data_README.md`（来自 `data/README.md`）、第一个实例的完整 JSON/CSV/MTX 文件（位于 `sample_data/`），以及通用的 `validate_model.py`。提示词要求模型反复运行该校验器，直到语法、导入、数据解析、模型构建和结构检查均通过。
+
+工作区不提供 `formulation/model.md`、参考 `code/model.py`、`solution/*.json` 或其他实例的数据。提示词还明确禁止查看父目录、绝对路径、环境变量、网络资源、隐藏参考模型和参考解，也禁止修改任务文件及校验器。Codex 可以在隔离工作区内查看给定文件、执行命令并迭代修改 `model.py`；最终评测对象是其实际写入的 `model.py`，终端回复只用于简要报告完成情况。每个问题类目录中的 `prompt.txt`、`events.jsonl`、`response.md` 和 `record.json` 分别保存了原始提示词、完整工具事件、最终回复和生成元数据，因而可以逐次审计生成过程。
+
 ## 3. 评测判定标准
 
 只有参考解 `status == optimal` 的实例进入准确率分母。模型代码成功构建模型、求解器返回可用解、解通过可行性检查，且模型目标值与参考最优目标值满足以下混合容差时记为通过：
