@@ -82,6 +82,17 @@ response should briefly report completion; model.py is the evaluated artifact.
 
 工作区不提供 `formulation/model.md`、数据集参考模型 `domains/<问题类>/code/model.py`、`solution/*.json` 或其他实例的数据。提示词还明确禁止查看父目录、绝对路径、环境变量、网络资源、隐藏参考模型和参考解，也禁止修改任务文件及校验器。Codex 可以在该独立工作区内查看给定文件、执行命令并迭代修改候选 `workspace/model.py`；校验通过后，harness 将它复制为该问题类生成目录下的候选 `model.py` 归档副本，后续批量求解评测使用该副本。数据集的 `domains/<问题类>/code/model.py` 是单独保存的标准参考实现，仅供参考解生成和交叉验证使用，不是 Codex 生成或修改的文件。终端回复只用于简要报告完成情况。每个问题类生成目录中的 `prompt.txt`、`events.jsonl`、`response.md` 和 `record.json` 分别保存了原始提示词、完整工具事件、最终回复和生成元数据，因而可以逐次审计生成过程。
 
+### 2.2 工具调用与完整执行流程
+
+从输入文件到最终判定分为 Codex 建模和外层 harness 求解两个阶段。需要特别说明：**Codex 会话本身不调用优化求解器**，提示词也明确禁止在 `build()` 内求解；HiGHS、SCIP、IPOPT 和 Couenne 均由 Codex 会话结束后的评测程序调用。因此，求解器运行不属于 `events.jsonl` 中的 Codex 工具调用。
+
+1. **Harness 准备输入。** Harness 为每个问题类创建独立工作目录，复制 `statement.md`、`annotations.md`、`data_README.md`、第一个实例的 `sample_data/` 和 `validate_model.py`，然后以该目录作为 Codex CLI 的当前工作区并提交第 2.1 节所列提示词。
+2. **Codex 使用命令执行工具读取和检查材料。** 实际事件记录中的工具类型为 `command_execution` 和 `file_change`。命令执行主要通过 Bash 调用 `pwd`、`rg`、`sed`、`ls`、`find`、`wc` 等工具，查看文件清单、题面、annotations、数据字段及样例规模；部分会话还用短 Python 程序检查 JSON/CSV/MTX 的结构、索引集合和数值范围。个别会话执行了 `git status` 或 `git diff`，其隔离影响见上一小节。
+3. **Codex 使用文件修改工具生成候选代码。** Codex 新建并迭代修改工作区中的候选 `workspace/model.py`，实现 `build(data: dict)`、Pyomo 变量、目标和约束。该阶段只修改候选代码，不修改题面、数据、annotations 或 `validate_model.py`。
+4. **Codex 调用本地 Python 做结构校验。** Codex 通过命令执行工具反复运行指定的 `python validate_model.py`；部分会话还运行 `python -m py_compile model.py` 或短 Python 自检脚本。校验覆盖语法和导入、样例数据解析、`ConcreteModel` 构建、目标数量、变量和约束规模、整数性及多项式次数等，但不在这里证明全量实例的最优目标正确。校验通过后，Codex 给出简短终端回复，harness 保存 `events.jsonl`、`response.md`、`record.json`、`validation.log`，并归档候选 `model.py`。
+5. **外层评测程序加载全量实例并求解。** Harness 以 `run_eval.py --from-code <候选 model.py>` 启动评测。每个实例在独立 Python worker 子进程中读取完整数据、动态导入候选模块并调用 `build(data)`；程序根据模型的线性/非线性与连续/整数属性，按第 2 节表中的顺序通过 Pyomo 接口轮换调用 `appsi_highs`、`scip`、`ipopt` 或 `couenne`。每个求解器的时间上限为 7200 秒，worker 另受实例级硬超时和 10 GB 地址空间限制。
+6. **评测程序验证并落盘结果。** 求解器返回后，评测程序把变量值重新代入候选模型，检查变量域、全部约束和目标值自洽性；若变量表示兼容，还会将解代入数据集参考模型做交叉可行性验证。最后将候选目标值与 `solution/<实例>.json` 中的参考最优目标按第 3 节容差比较，生成 `pass`、`fail` 或 `unjudgeable` 判定。逐实例求解日志、变量解和最终汇总分别保存在 `logs/<实例>.log`、`solutions/<实例>.json` 和 `result.json` 中。
+
 ## 3. 评测判定标准
 
 只有参考解 `status == optimal` 的实例进入准确率分母。模型代码成功构建模型、求解器返回可用解、解通过可行性检查，且模型目标值与参考最优目标值满足以下混合容差时记为通过：
