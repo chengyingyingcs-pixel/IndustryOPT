@@ -140,6 +140,36 @@ response should briefly report completion; model.py is the evaluated artifact.
 
 补测后，`CBG-Camera-VideoStabilization-L2` 的 8 个实例因补齐 IPOPT/Couenne 而全部可判定且通过；`Auto-Vehicle-ActiveSuspensionBalance` 的 8 个实例也变为可判定，但均未通过当前严格可行性检查。除悬架、LDL 和 MoE 三个问题类外，其余可判定问题类均为 100% 通过。总体失败由 LDL 的 3 个失败、悬架的 8 个失败和 MoE 的 2 个失败构成。
 
+### 5.1 各问题类的实例求解时间分布
+
+下表统计每个实例在本报告最终结果口径下的**累计求解器运行时间**：若一个实例依次尝试多个求解器，则将 `solver_attempts[].seconds` 相加，而不是只取最后一个求解器的 `solve_seconds`；没有写入 `seconds` 的失败尝试不计入数值。因此单实例累计时间可能超过 7200 秒，例如 LDL 的部分实例先由 HiGHS 运行约 2 小时，再由 SCIP 运行约 2 小时。该指标不包含候选代码生成时间，也不包含 worker 启动、模型构建、解回代校验和参考目标比对的额外墙钟时间。P25、P50 和 P75 采用线性插值分位数；全部数值单位均为秒。
+
+| 问题类 | 有计时/总实例 | 最小值 | P25 | P50（中位数） | P75 | 均值 | 最大值 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Auto-Vehicle-ActiveSuspensionBalance | 8/8 | 12.127 | 13.580 | 15.015 | 19.935 | 16.411 | 21.656 |
+| CBG-Camera-JPEGQuantizationTable | 8/8 | 0.805 | 1.109 | 1.467 | 1.772 | 1.476 | 2.182 |
+| CBG-Camera-VideoStabilization-L1 | 8/8 | 0.349 | 0.354 | 0.381 | 0.392 | 0.376 | 0.403 |
+| CBG-Camera-VideoStabilization-L2 | 8/8 | 6.268 | 12.837 | 17.432 | 25.839 | 19.977 | 36.985 |
+| CBG-Communication-RailCellHandover | 5/5 | 0.301 | 0.337 | 0.409 | 5.442 | 3.426 | 10.643 |
+| CBG-HarmonyOS-CriticalThreadOpt | 5/5 | 0.297 | 0.298 | 0.303 | 0.319 | 0.316 | 0.362 |
+| CBG-HarmonyOS-MemoryEviction | 8/8 | 0.279 | 0.304 | 0.317 | 0.324 | 0.313 | 0.335 |
+| Compute-CAE-SparseLA-LDLSymmetricPivoting | 6/6 | 0.370 | 2.455 | 3604.573 | 12602.224 | 6002.540 | 14402.533 |
+| Compute-CAE-SparseLA-LUPivotReordering | 6/6 | 0.352 | 0.355 | 0.366 | 0.381 | 0.396 | 0.551 |
+| Compute-Cluster-CrossPodLoadBalancing | 10/10 | 0.790 | 2008.294 | 7200.545 | 7200.650 | 5068.852 | 7201.110 |
+| Compute-LLM-MoEExpertLoadBalance | 4/5 | 0.371 | 0.380 | 0.440 | 1828.786 | 1828.726 | 7313.651 |
+| Compute-TBE-MemoryAllocation | 8/8 | 0.821 | 1.208 | 236.578 | 7203.891 | 2761.701 | 7208.809 |
+| Energy-Microgrid-SizingAndOperation | 10/10 | 4.582 | 38.808 | 136.381 | 5448.157 | 2226.792 | 7287.498 |
+| Energy-VPP-DayAheadAdjustableLoadScheduling | 15/15 | 0.509 | 0.740 | 3.817 | 47.177 | 21.119 | 65.298 |
+| ICT-DataCom-LoadBalancing-SingleAndMultitimestamp | 8/8 | 0.308 | 0.311 | 0.316 | 0.326 | 0.321 | 0.349 |
+| ICT-DataCom-NetworkPlanning-CapacityExpansion | 8/8 | 0.311 | 0.806 | 1.384 | 8.615 | 5.041 | 16.892 |
+| ICT-OpticalNetwork-NetworkPlanning-LinkProtection | 5/5 | 0.446 | 1.454 | 12.016 | 24.130 | 12.510 | 24.505 |
+| ICT-OpticalNetwork-NetworkPlanning-PathProtection | 5/5 | 0.341 | 0.356 | 0.410 | 0.475 | 0.656 | 1.696 |
+| ICT-Wireless-ChannelEstimation-SparseDelay | 10/10 | 0.987 | 8.216 | 23.822 | 47.288 | 61.459 | 256.908 |
+
+共 145/146 个实例具有可恢复的求解器计时。唯一缺失的是 `Compute-LLM-MoEExpertLoadBalance/inst_004`：HiGHS 发生 `MemoryError`，SCIP 在对称性预处理阶段因内存不足退出，两次失败均未写入结构化的 solver seconds，因此不进入该类分位数计算。MoE `inst_002` 的 0.382 秒来自 Couenne 日志中的 `Total solve time`；LDL 前 3 个快速实例的 6.28、1.18 和 0.37 秒来自保留的 HiGHS `Timing` 日志。主批次复用缓存而未重新求解的五个快速问题类，采用其原始顺序运行记录中的 `solver_attempts[].seconds`；这些实例均在 11 秒内结束，原运行的 900 秒上限没有触发。
+
+从中位数看，`CBG-HarmonyOS-CriticalThreadOpt` 最短，为 0.303 秒；`CBG-HarmonyOS-MemoryEviction`、`ICT-DataCom-LoadBalancing-SingleAndMultitimestamp`、`Compute-CAE-SparseLA-LUPivotReordering` 和 `CBG-Camera-VideoStabilization-L1` 的中位数也均低于 0.4 秒。最明显的长尾出现在 LDL、CrossPod、TBE 和 Microgrid：CrossPod 的中位数已接近单求解器 7200 秒时限，LDL 最大累计 14402.533 秒，对应两个求解器先后达到时限；因此这些类别的均值会被少数超时实例显著抬高，中位数和四分位数比均值更能描述其典型耗时。
+
 ## 6. 失败明细与原因
 
 ### 6.1 `Auto-Vehicle-ActiveSuspensionBalance`
