@@ -2,7 +2,7 @@
 
 ## 1. 实验概述
 
-本报告总结 Codex CLI harness 调用 `gpt-5.6-sol`、`reasoning_effort=high` 完成 IndustryOPT 数学优化建模任务的结果。评测使用带 annotations 的中文输入，模型为每个问题类生成一份通用 Pyomo 候选 `model.py`，随后在全部数据实例上独立构建并求解。生成阶段已完成，求解阶段复用了已有候选代码，未重新调用模型生成代码。本文所称“候选 `model.py`”均指 Codex 的被测输出，不是数据集自带的参考模型 `domains/<问题类>/code/model.py`。
+本报告总结 Codex CLI harness 调用 `gpt-5.6-sol`、`reasoning_effort=high` 完成 IndustryOPT 数学优化建模任务的结果。评测使用带 annotations 的中文输入，模型为每个问题类生成一份通用 Pyomo 候选 `model.py`，随后在全部数据实例上独立构建并求解。生成阶段已完成，求解阶段复用了已有候选代码，未重新调用模型生成代码。本文所称“候选 `model.py`”均指 Codex 的被测输出，不是数据集自带的参考模型 `domains/<问题类>/code/model.py`。第 1--9 节描述 with-ann 基线，第 10 节单独报告严格 no-ann 消融及两组对比。
 
 评测批次：`gpt-5.6-sol-high-withann-pass1`。生成时间为 2026-09-11，评测结果目录为：
 
@@ -224,3 +224,110 @@ response should briefly report completion; model.py is the evaluated artifact.
 - 评测实现：`/public/chengyingying/project/industry_mathopt_dataset/tools/eval/run_eval.py`
 
 本轮求解使用现成候选代码，可通过 `--from-code` 复跑；若仅调整求解器、资源或 `--timeout`，无需重新生成候选模型代码。
+
+## 10. `annotations` 严格消融对比
+
+### 10.1 对照设计与统计口径
+
+为衡量 `annotations.md` 对 Codex 建模结果的影响，另运行一组严格 no-ann 对照。对照组继续使用 `gpt-5.6-sol`、`reasoning_effort=high`，每个问题类独立生成一次候选代码；原始提示词与 with-ann 组逐字节一致，SHA-256 均为 `2262bea50ba45a2652d28e0a13be529f32fe6fcaa17be249dfe3723338c2ff4f`。对照工作区中的 `statement.md`、`data_README.md`、`sample_data/` 和 `validate_model.py` 也与 with-ann 组逐文件一致，19 个问题类的输入清单差异均为空；唯一有意删除的输入是 `annotations.md`。
+
+两组均为每个问题类生成一份通用候选 `model.py`，再用于该类全部实例。no-ann 组沿用相同的求解器顺序、评测判据、10 GB 内存限制和单求解器 7200 秒时限。with-ann 数值采用本报告前文的最终合并口径，即主批次加第 6、7 节所述 SCIP/Couenne 补测；其中五个快速问题类复用了早期 900 秒上限下的缓存结果，但所有这些实例都在 11 秒内证明最优，时限差异没有实际触发。no-ann 批次从生成到求解于 2026-09-14 至 2026-09-16 连续完成，共覆盖 19 类、146 个实例。
+
+严格批次生成时系统尚未安装 `jq`，且外层脚本第一次调用 `validate_model.py` 时未切换到对应工作区，导致最初的 `record.json` 为空、`validation.log` 记录错误路径。2026-09-17 已在不修改候选代码和求解结果的前提下修复元数据，并在各自工作区重新运行校验；19/19 份候选均通过结构校验。原始空记录和错误日志分别保留为 `record.pre_repair.json`、`generation.pre_repair.json` 和 `validation.pre_repair.log`，修复信息及时间恢复依据写入新 `record.json` 的 `repair` 字段。
+
+### 10.2 总体结果
+
+| 指标 | with annotations | strict no annotations | no-ann 相对变化 |
+| --- | ---: | ---: | ---: |
+| 实例总数 | 146 | 146 | 0 |
+| 可判定实例 | 131 | 131 | 0 |
+| 通过 | 118 | 115 | -3 |
+| 失败 | 13 | 16 | +3 |
+| 不可判定 | 15 | 15 | 0 |
+| 可判定实例准确率 | **90.0763%** | **87.7863%** | **-2.2901 个百分点** |
+| 全部实例通过比例 | 80.8219% | 78.7671% | -2.0548 个百分点 |
+
+移除 annotations 后，可判定分母没有变化，准确率从 `118/131` 降至 `115/131`，净减少 3 个通过实例。15 个不可判定实例在两组中完全相同，仍由参考解不是 `optimal` 导致，不是 annotations 或求解环境造成。
+
+### 10.3 分问题类对比
+
+下表中的分母只包含参考解为 `optimal` 的可判定实例；“变化”是 no-ann 准确率减去 with-ann 准确率。
+
+| 问题类 | with-ann 通过/可判定 | no-ann 通过/可判定 | 变化 |
+| --- | ---: | ---: | ---: |
+| Auto-Vehicle-ActiveSuspensionBalance | 0/8 | 0/8 | 0 |
+| CBG-Camera-JPEGQuantizationTable | 8/8 | 8/8 | 0 |
+| CBG-Camera-VideoStabilization-L1 | 8/8 | 8/8 | 0 |
+| CBG-Camera-VideoStabilization-L2 | 8/8 | 8/8 | 0 |
+| CBG-Communication-RailCellHandover | 5/5 | 5/5 | 0 |
+| CBG-HarmonyOS-CriticalThreadOpt | 5/5 | 5/5 | 0 |
+| CBG-HarmonyOS-MemoryEviction | 8/8 | 8/8 | 0 |
+| Compute-CAE-SparseLA-LDLSymmetricPivoting | 3/6 | 6/6 | +50 个百分点 |
+| Compute-CAE-SparseLA-LUPivotReordering | 6/6 | 0/6 | -100 个百分点 |
+| Compute-Cluster-CrossPodLoadBalancing | 3/3 | 3/3 | 0 |
+| Compute-LLM-MoEExpertLoadBalance | 2/4 | 2/4 | 0 |
+| Compute-TBE-MemoryAllocation | 5/5 | 5/5 | 0 |
+| Energy-Microgrid-SizingAndOperation | 6/6 | 6/6 | 0 |
+| Energy-VPP-DayAheadAdjustableLoadScheduling | 15/15 | 15/15 | 0 |
+| ICT-DataCom-LoadBalancing-SingleAndMultitimestamp | 8/8 | 8/8 | 0 |
+| ICT-DataCom-NetworkPlanning-CapacityExpansion | 8/8 | 8/8 | 0 |
+| ICT-OpticalNetwork-NetworkPlanning-LinkProtection | 5/5 | 5/5 | 0 |
+| ICT-OpticalNetwork-NetworkPlanning-PathProtection | 5/5 | 5/5 | 0 |
+| ICT-Wireless-ChannelEstimation-SparseDelay | 10/10 | 10/10 | 0 |
+
+19 个问题类中有 17 个保持相同的类级通过数。净变化完全来自两个稀疏线性代数问题：LDL 增加 3 个通过实例，LU 减少 6 个通过实例。两组各有 16 个问题类在其可判定实例上达到 100%，但其中一个问题类发生了互换：with-ann 是 LU 全部通过，no-ann 则是 LDL 全部通过。
+
+### 10.4 逐实例状态迁移
+
+| with-ann \ no-ann | 通过 | 失败 | 不可判定 | 合计 |
+| --- | ---: | ---: | ---: | ---: |
+| 通过 | 112 | 6 | 0 | 118 |
+| 失败 | 3 | 10 | 0 | 13 |
+| 不可判定 | 0 | 0 | 15 | 15 |
+| **合计** | **115** | **16** | **15** | **146** |
+
+在 131 个可判定实例中，122 个判定一致，一致率为 93.1298%；9 个不一致实例包括 6 个 `pass -> fail` 和 3 个 `fail -> pass`。计入不可判定实例后，137/146 个实例状态一致，一致率为 93.8356%。全部 9 个状态变化都集中在 LDL 和 LU；不可判定状态没有发生迁移。
+
+### 10.5 关键差异与原因
+
+#### LDL：no-ann 模型更小，3 个长时限失败转为通过
+
+with-ann 候选除了选择 $1\times1$/$2\times2$ pivot，还显式引入完整置换、位置变量和成对相邻约束；no-ann 候选识别出目标只依赖 pivot 划分，直接构造集合划分/匹配模型，省去了不影响目标值的排列变量。后三个大实例的差异如下，其中时间为同一实例内全部求解器尝试的累计时间。
+
+| 实例 | with-ann 变量/约束 | with-ann 时间与结果 | no-ann 变量/约束 | no-ann 时间与结果 |
+| --- | ---: | --- | ---: | --- |
+| inst_004 | 22949 / 2680 | 14402.010 秒，失败 | 1265 / 147 | 0.324 秒，通过 |
+| inst_005 | 56955 / 1573 | 14402.533 秒，失败 | 627 / 238 | 0.325 秒，通过 |
+| inst_006 | 180453 / 8106 | 7202.866 秒，失败 | 4035 / 420 | 0.424 秒，通过 |
+
+no-ann 候选在 6 个实例上均由 HiGHS 证明最优，目标值与参考值一致；with-ann 候选的后三个实例虽得到可行解，但未能在时限内收敛到参考最优值。这说明本次生成中 annotations 对“对称置换”语义的强调伴随了不必要的显式排序建模，扩大了模型规模。该现象是本次候选代码的具体结果，不能据此推断 annotations 必然使 LDL 建模变慢。
+
+#### LU：6 个通过全部退化为模型加载失败
+
+no-ann 候选的 `_matrix_file()` 明确拒绝绝对 `matrix_path`，而全量评测器向 `build(data)` 提供的是实例目录中矩阵文件的绝对路径，因此 6 个实例都在构建模型前抛出 `ValueError: matrix_path must be relative to the instance directory`。with-ann 候选接受绝对路径，6 个实例全部通过。
+
+这一退化属于数据接口兼容错误，而不是 LU 指派模型的数学公式错误。轻量 `validate_model.py` 使用工作区内的相对样例路径，所以 no-ann 候选仍能通过生成阶段结构校验；这也说明仅用一个样例做相对路径校验不足以覆盖全量评测的数据装载方式。annotations 提到了 Matrix Market 文件和 `matrix_path`，但没有明确规定评测器会传入绝对路径，因此这 6 个差异不能完全解释为领域知识缺失，也可能包含独立生成的实现随机性。
+
+#### 主动悬架：二元判定不变，但数学语义明显退化
+
+两组主动悬架均为 0/8，但失败性质不同。with-ann 候选的 8 个目标值均与参考值匹配，只因 IPOPT 在力边界处产生约 `1.8e-6`--`3.7e-5` 的数值越界而未通过严格可行性检查。no-ann 候选把减振器阻尼写入路面力，使用 $k h + c\,\Delta h / \Delta t$，并使路面力与作动器力经过不一致的运动比折算；其 8 个目标值为参考值的约 162.1 倍至 `2.1261e8` 倍，属于模型公式错误。
+
+对应 annotations 明确说明减振器阻尼等整车参数是本题不使用的干扰项，并要求路面弹簧力和作动器力采用一致的运动比折算。因此，annotations 在该问题上提供了实质性的正向语义约束；仅比较 `fail -> fail` 会完全掩盖这一收益。
+
+#### MoE 与不可判定实例
+
+MoE 在两组中均为 2 个通过、2 个失败、1 个不可判定，但失败机制并不完全相同。with-ann 的 `inst_002` 由 Couenne 返回“最优”后未通过候选模型自身约束检查；no-ann 的同一实例则由 SCIP 报错、Couenne 达到硬超时，未返回可行解。`inst_004` 两组都受内存或求解器错误影响。其余 15 个不可判定实例的参考状态及实例集合完全一致，不能用于衡量 annotations 对准确率的作用。
+
+### 10.6 结论与解释边界
+
+按最终实例级指标，移除 annotations 后准确率下降 **2.2901 个百分点**。但这一净值不能简单解释为“annotations 稳定贡献 2.29 个百分点”：负向变化集中在 LU 的一个候选代码接口错误，正向变化则来自 LDL 候选的模型精简；同时，主动悬架显示出未反映在通过率中的显著语义收益。更准确的结论是，annotations 的影响具有明显的问题依赖性：它能排除题面中的诱导参数和补足隐含业务规则，也可能使单次生成选择更复杂的等价建模方式。
+
+此外，每个条件对每个问题类都只生成一次候选代码，19 对候选代码也全部不同。两批调用没有固定可复现随机种子，且生成日期不同，因此当前结果同时包含“是否提供 annotations”和模型生成随机性的影响。146 个实例也不是 146 次独立建模试验，而是由 19 份类级候选代码成组产生。若要估计 annotations 的稳定因果效应，应对每个问题类在两种条件下进行多次配对生成，并同时报告类级均值、方差和失败机制分布。
+
+### 10.7 消融实验产物
+
+- no-ann 生成元数据：`/public/chengyingying/project/industry_mathopt_dataset/eval_results/harness_sweep/strict_noann/gpt-5.6-sol-high-strict-noann-pass1-20260914-101020/generations/generation.json`
+- no-ann 候选代码和生成审计记录：上述 `generations/<问题类>/` 下的 `model.py`、`events.jsonl`、`response.md`、`record.json` 和 `validation.log`
+- no-ann 求解结果：`/public/chengyingying/project/industry_mathopt_dataset/eval_results/harness_sweep/strict_noann/gpt-5.6-sol-high-strict-noann-pass1-20260914-101020/evals/<问题类>/runs/<运行目录>/result.json`
+- no-ann 主日志：`/public/chengyingying/project/industry_mathopt_dataset/eval_results/harness_sweep/strict_noann/gpt-5.6-sol-high-strict-noann-pass1-20260914-101020/strict_noann_harness.log`
+- with-ann 主批次和补测结果路径见第 9 节；消融对比采用其合并后的最终判定，而不是未安装 SCIP/Couenne 时的早期结果。
