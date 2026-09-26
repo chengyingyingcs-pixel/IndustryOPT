@@ -1,4 +1,4 @@
-# GPT-5.6-Sol Harness 严格 No-Annotation Pass@1 重跑方案
+# GPT-5.6-Sol Harness 严格 No-Annotation Pass@1 实验报告
 
 状态：**原始全量实验已完成：19/19 问题类、146/146 实例均已评测；CAE 输入契约修正后的 12 个实例定向重测也已完成**
 
