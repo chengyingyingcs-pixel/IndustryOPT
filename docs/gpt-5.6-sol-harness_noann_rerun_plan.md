@@ -304,6 +304,75 @@ gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential
 | ICT-OpticalNetwork-NetworkPlanning-PathProtection | 5/5 | 5 |
 | ICT-Wireless-ChannelEstimation-SparseDelay | 10/10 | 10 |
 
+### 7.1 各问题类的实例求解时间分布
+
+下表统计评测器记录的**最终采用求解器的单次调用耗时**，单位均为秒，不包括模型生成、
+实例加载、候选模型构建、可行性复核和参考模型交叉检查。对于轮换多个求解器的实例，
+`solve_seconds` 只记录最终采用的求解器，不是所有尝试的累计时间；因此本表用于描述实例
+求解时长分布，不能直接当作整批实验的机器时间。17 个非 CAE 问题类取自实际执行求解的
+`betterref-fresh-20260922-060813` 批次，两个 CAE 类取自输入契约修正后的定向重测批次。
+最终重判批次主要复用缓存解，未完整保留原始 `solve_seconds`，所以不作为计时数据源。
+
+TBE 的 `inst_001`--`inst_007` 在缓存记录中缺少 `solve_seconds`，下表使用同一运行目录的
+HiGHS `Timing` 或 SCIP `Solving Time` 补齐；`inst_008` 同样按求解器日志口径统计，以保持
+该类内部一致。分位数采用线性插值。`有计时/总数` 为 145/146：Camera-L2 `inst_004`
+没有可采用的解，因而没有 `solve_seconds`，未进入分位数；其 IPOPT 和 Couenne 两次不可行
+尝试分别耗时 177.412 秒和 0.115 秒，累计 177.527 秒。
+
+| 问题类 | 有计时/总数 | 最小 | P25 | 中位数 | P75 | 最大 | 均值 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Auto-Vehicle-ActiveSuspensionBalance | 8/8 | 28.85 | 34.79 | 37.90 | 43.26 | 46.86 | 38.46 |
+| CBG-Camera-JPEGQuantizationTable | 8/8 | 0.937 | 1.170 | 1.496 | 1.793 | 2.203 | 1.521 |
+| CBG-Camera-VideoStabilization-L1 | 8/8 | 0.374 | 0.394 | 0.402 | 0.443 | 0.472 | 0.417 |
+| CBG-Camera-VideoStabilization-L2 | 7/8 | 11.26 | 21.76 | 25.14 | 40.89 | 57.13 | 31.26 |
+| CBG-Communication-RailCellHandover | 5/5 | 0.428 | 0.436 | 0.731 | 6.436 | 8.689 | 3.344 |
+| CBG-HarmonyOS-CriticalThreadOpt | 5/5 | 0.332 | 0.370 | 0.379 | 0.412 | 0.436 | 0.386 |
+| CBG-HarmonyOS-MemoryEviction | 8/8 | 0.387 | 0.389 | 0.397 | 0.411 | 0.435 | 0.403 |
+| Compute-CAE-SparseLA-LDLSymmetricPivoting | 6/6 | 0.358 | 0.391 | 0.471 | 0.492 | 0.504 | 0.445 |
+| Compute-CAE-SparseLA-LUPivotReordering | 6/6 | 0.365 | 0.370 | 0.379 | 0.431 | 0.641 | 0.430 |
+| Compute-Cluster-CrossPodLoadBalancing | 10/10 | 1.315 | 2259.76 | 7200.41 | 7201.32 | 7202.86 | 5102.96 |
+| Compute-LLM-MoEExpertLoadBalance | 5/5 | 0.432 | 0.951 | 722.44 | 7206.19 | 7221.21 | 3030.25 |
+| Compute-TBE-MemoryAllocation | 8/8 | 0.040 | 0.265 | 216.62 | 7200.01 | 7200.02 | 2754.22 |
+| Energy-Microgrid-SizingAndOperation | 10/10 | 5.674 | 32.07 | 142.52 | 7211.17 | 7260.37 | 2926.90 |
+| Energy-VPP-DayAheadAdjustableLoadScheduling | 15/15 | 0.527 | 0.670 | 2.723 | 33.32 | 44.74 | 14.62 |
+| ICT-DataCom-LoadBalancing-SingleAndMultitimestamp | 8/8 | 0.412 | 0.417 | 0.427 | 0.435 | 0.466 | 0.429 |
+| ICT-DataCom-NetworkPlanning-CapacityExpansion | 8/8 | 0.390 | 0.778 | 1.021 | 6.977 | 8.124 | 3.296 |
+| ICT-OpticalNetwork-NetworkPlanning-LinkProtection | 5/5 | 0.457 | 3.008 | 3.445 | 14.55 | 22.46 | 8.783 |
+| ICT-OpticalNetwork-NetworkPlanning-PathProtection | 5/5 | 0.417 | 0.484 | 1.356 | 1.783 | 2.880 | 1.384 |
+| ICT-Wireless-ChannelEstimation-SparseDelay | 10/10 | 0.807 | 9.502 | 28.02 | 68.64 | 284.24 | 74.11 |
+
+耗时区间计数如下。`>=7200` 表示最终采用的求解器达到或略超单求解器 7200 秒时限；
+评测器在求解调用外层按 wall-clock 计时，进程启动、结果回收和清理会使记录值略高于
+7200 秒。
+
+| 问题类 | `<=1` | `(1,60]` | `(60,600]` | `(600,7200)` | `>=7200` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Auto-Vehicle-ActiveSuspensionBalance | 0 | 8 | 0 | 0 | 0 |
+| CBG-Camera-JPEGQuantizationTable | 2 | 6 | 0 | 0 | 0 |
+| CBG-Camera-VideoStabilization-L1 | 8 | 0 | 0 | 0 | 0 |
+| CBG-Camera-VideoStabilization-L2 | 0 | 7 | 0 | 0 | 0 |
+| CBG-Communication-RailCellHandover | 3 | 2 | 0 | 0 | 0 |
+| CBG-HarmonyOS-CriticalThreadOpt | 5 | 0 | 0 | 0 | 0 |
+| CBG-HarmonyOS-MemoryEviction | 8 | 0 | 0 | 0 | 0 |
+| Compute-CAE-SparseLA-LDLSymmetricPivoting | 6 | 0 | 0 | 0 | 0 |
+| Compute-CAE-SparseLA-LUPivotReordering | 6 | 0 | 0 | 0 | 0 |
+| Compute-Cluster-CrossPodLoadBalancing | 0 | 2 | 0 | 1 | 7 |
+| Compute-LLM-MoEExpertLoadBalance | 2 | 0 | 0 | 1 | 2 |
+| Compute-TBE-MemoryAllocation | 3 | 1 | 1 | 0 | 3 |
+| Energy-Microgrid-SizingAndOperation | 0 | 4 | 2 | 0 | 4 |
+| Energy-VPP-DayAheadAdjustableLoadScheduling | 6 | 9 | 0 | 0 | 0 |
+| ICT-DataCom-LoadBalancing-SingleAndMultitimestamp | 8 | 0 | 0 | 0 | 0 |
+| ICT-DataCom-NetworkPlanning-CapacityExpansion | 4 | 4 | 0 | 0 | 0 |
+| ICT-OpticalNetwork-NetworkPlanning-LinkProtection | 1 | 4 | 0 | 0 | 0 |
+| ICT-OpticalNetwork-NetworkPlanning-PathProtection | 2 | 3 | 0 | 0 | 0 |
+| ICT-Wireless-ChannelEstimation-SparseDelay | 1 | 6 | 3 | 0 | 0 |
+| **合计** | **65** | **56** | **6** | **2** | **16** |
+
+145 个有最终求解器计时的实例中，121 个（83.45%）在 60 秒内完成；整体中位数为
+1.445 秒，P75 为 35.784 秒，P90 已达到 7200.01 秒。均值为 821.34 秒，明显高于
+中位数，主要由 16 个时限级实例拉高：CrossPod 7 个、MoE 2 个、TBE 3 个、Microgrid
+4 个。CAE 修正后的 12 个实例均小于 1 秒。
+
 本次最终统计使用的重判评测器 SHA-256 为
 `d450a4c287804489e4a11da427c91e179bc6ffe76e63373be54839f8bcd77a0d`，方案指纹为
 `1939da46299a`。重判结果目录中的 `runs.md`、各问题类 `result.json`、实例日志和解文件构成完整审计记录；原始批次仍保留供对照。
