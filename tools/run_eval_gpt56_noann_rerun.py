@@ -51,10 +51,10 @@ MAX_RETRIES = 5
 # Agent.prompt 偶发挂死（无超时）。不进 SCHEME_FUNCS，改这里不触发方案指纹失效。
 MODEL_CALL_TIMEOUT_SEC = 1200
 # 求解子进程的地址空间上限（字节）。见 solve_generated 里的注释。
-# 15GB 的机器上取 10GB：给系统、父进程和页缓存留出真正的余量。实测取 12GB 时
-# Microgrid inst_010（531 万变量+约束）仍能把整台 VM 拖挂重启 —— rlimit 触发前
-# 宿主已经先被挤死了。建模本身只要 2GB，爆的是求解阶段。
-WORKER_MEM_LIMIT = 10 * 1024**3
+# 当前评测容器的 cgroup 内存上限为 32 GiB；将 worker 地址空间上限与该
+# 上限对齐，避免在大规模实例上提前以 10 GiB 截断求解。宿主仍由 cgroup
+# 负责保护，建模/求解子进程不能突破容器的 32 GiB 内存预算。
+WORKER_MEM_LIMIT = 32 * 1024**3
 
 # 判定结果
 PASS = "pass"
@@ -854,7 +854,7 @@ def check_feasibility(model_path: Path, inst_dir: Path, solved: dict) -> tuple[b
 
 def check_against_reference(
     problem_dir: Path, inst_dir: Path, solved: dict
-) -> tuple[bool | None, list[str]]:
+) -> tuple[bool | None, list[str], int | None]:
     """把生成模型求出的解代入参考模型验可行。
 
     这一层挡的是「漏了一条约束、但最优目标值碰巧与参考一致」。实测能发生：
@@ -884,16 +884,18 @@ def check_against_reference(
         check_domains,
         load_data,
     )
-    from pyomo.environ import Var
+    from pyomo.environ import Objective, Var
 
     ref_code = problem_dir / "code" / "model.py"
     if not ref_code.is_file():
-        return None, ["参考模型不存在，无法交叉验证"]
+        return None, ["参考模型不存在，无法交叉验证"], None
 
     spec = importlib.util.spec_from_file_location("reference_model", ref_code)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     ref_model = mod.build(load_data(inst_dir))
+    objectives = list(ref_model.component_data_objects(Objective, active=True))
+    ref_sense = int(objectives[0].sense) if len(objectives) == 1 else None
 
     ref_vars = list(ref_model.component_data_objects(Var, active=True))
     ref_names = {v.name for v in ref_vars}
@@ -903,7 +905,7 @@ def check_against_reference(
         preview = ", ".join(sorted(unknown)[:3])
         return None, [
             f"变量命名与参考模型不一致（如 {preview}），建模方式不同，无法交叉验证"
-        ]
+        ], ref_sense
 
     families: dict[str, set[str]] = {}
     for v in ref_vars:
@@ -914,13 +916,13 @@ def check_against_reference(
         return None, [
             f"参考模型的变量 {preview} 在生成解里整族缺失（多半是被代换掉了），"
             f"建模方式不同，无法交叉验证"
-        ]
+        ], ref_sense
 
     assign_variables(ref_model, solved["variables"], default=0)
     issues = check_domains(ref_model)
     con_issues, _ = check_constraints(ref_model)
     issues += con_issues
-    return not issues, issues
+    return not issues, issues, ref_sense
 
 
 # --------------------------------------------------------------------------
@@ -929,6 +931,19 @@ def check_against_reference(
 
 def close(a: float, b: float) -> bool:
     return abs(a - b) <= max(ABS_TOL, REL_TOL * max(abs(a), abs(b)))
+
+
+def better_with_tolerance(candidate: float, reference: float, sense: int) -> bool:
+    """候选是否在评分容差之外严格优于参考值。
+
+    Pyomo 的目标方向取值为 1（最小化）或 -1（最大化）。落在与目标匹配相同的
+    绝对/相对容差内时视为持平，而不是把数值噪声算作改进。
+    """
+    tolerance = max(
+        ABS_TOL,
+        REL_TOL * max(abs(candidate), abs(reference)),
+    )
+    return (candidate - reference) * sense < -tolerance
 
 
 def load_reference(problem_dir: Path, inst_id: str) -> dict | None:
@@ -948,9 +963,9 @@ def judge_instance(
 ) -> dict:
     """判一个实例。
 
-    可判定性先由参考解的 status 决定：只有 status == optimal 的参考解才能当标准
-    答案。这一步必须在求解之前定，否则参考解本来就不可判定的实例会因为求解超时
-    被误记成模型写错。
+    status == optimal 的参考解按目标匹配判定。对 feasible/heuristic 参考解，候选
+    只有在通过可行性门、目标方向一致且目标值在评分容差之外严格优于参考值时才通过；
+    其余情况仍为不可判定，避免把一个未证最优的参考值当作精确答案。
     """
     inst_id = inst_dir.name
     entry: dict = {"instance": inst_id}
@@ -965,14 +980,14 @@ def judge_instance(
     entry["reference_objective"] = ref.get("objective")
     judgeable = ref_status == "optimal"
     if not judgeable:
-        entry["unjudgeable_reason"] = f"参考解 status 为 {ref_status}，不是最优，不能当标准答案"
+        entry["unjudgeable_reason"] = f"参考解 status 为 {ref_status}，不是已证最优"
 
     solved = solve_generated(model_path, inst_dir, timeout, log_path)
     entry["termination"] = solved.get("termination")
     entry["n_vars"] = solved.get("n_vars")
     entry["n_cons"] = solved.get("n_cons")
     for k in (
-        "solver_used", "degree", "has_integer", "local_only", "solvers_tried",
+        "solver_used", "degree", "has_integer", "local_only", "solvers_tried", "sense",
         "solve_seconds", "solver_attempts", "time_limit_per_solver_sec", "proven_optimal",
     ):
         if k in solved:
@@ -1011,6 +1026,7 @@ def judge_instance(
                     "bound": solved.get("bound"),
                     "termination": solved.get("termination"),
                     "solver_used": solved.get("solver_used"),
+                    "sense": solved.get("sense"),
                     "variables_default": 0,
                     "variables": solved["variables"],
                 },
@@ -1030,10 +1046,15 @@ def judge_instance(
         entry["feasibility_issues"] = issues[:5]
 
     try:
-        ref_ok, ref_issues = check_against_reference(problem_dir, inst_dir, solved)
+        ref_ok, ref_issues, ref_sense = check_against_reference(problem_dir, inst_dir, solved)
     except Exception as exc:
-        ref_ok, ref_issues = None, [f"交叉验证异常 {type(exc).__name__}: {exc}"]
+        ref_ok, ref_issues, ref_sense = (
+            None,
+            [f"交叉验证异常 {type(exc).__name__}: {exc}"],
+            None,
+        )
     entry["feasible_in_reference"] = ref_ok
+    entry["reference_objective_sense"] = ref_sense
     if ref_issues:
         entry["reference_issues"] = ref_issues[:5]
     if ref_ok is False:
@@ -1046,7 +1067,49 @@ def judge_instance(
         entry["objective_matched"] = close(float(solved["objective"]), float(ref_obj))
 
     if not judgeable:
-        entry.update(verdict=UNJUDGEABLE, reason=entry["unjudgeable_reason"])
+        candidate_sense = solved.get("sense")
+        entry["candidate_objective_sense"] = candidate_sense
+        if not feasible:
+            detail = (entry.get("reference_issues") or entry.get("feasibility_issues") or [""])[0]
+            entry.update(
+                verdict=UNJUDGEABLE,
+                reason=f"{entry['unjudgeable_reason']}；候选解未通过可行性检查：{detail}",
+            )
+        elif ref_obj is None:
+            entry.update(
+                verdict=UNJUDGEABLE,
+                reason=f"{entry['unjudgeable_reason']}；参考解没有目标值，无法比较",
+            )
+        elif ref_sense not in (-1, 1):
+            entry.update(
+                verdict=UNJUDGEABLE,
+                reason=f"{entry['unjudgeable_reason']}；无法确定参考模型目标方向",
+            )
+        elif candidate_sense != ref_sense:
+            entry.update(
+                verdict=UNJUDGEABLE,
+                reason=(
+                    f"{entry['unjudgeable_reason']}；候选与参考模型目标方向不一致"
+                    f"（候选 {candidate_sense}，参考 {ref_sense}）"
+                ),
+            )
+        elif better_with_tolerance(float(solved["objective"]), float(ref_obj), ref_sense):
+            entry.update(
+                verdict=PASS,
+                passed_by_better_than_nonoptimal_reference=True,
+                reason=(
+                    f"候选目标严格优于非最优参考：{float(solved['objective']):.9g} vs "
+                    f"参考 {float(ref_obj):.9g}"
+                ),
+            )
+        else:
+            entry.update(
+                verdict=UNJUDGEABLE,
+                reason=(
+                    f"{entry['unjudgeable_reason']}；候选目标未严格优于参考："
+                    f"{float(solved['objective']):.9g} vs {float(ref_obj):.9g}"
+                ),
+            )
     elif not feasible:
         detail = (entry.get("reference_issues") or entry.get("feasibility_issues") or [""])[0]
         where = "代入参考模型后不可行" if ref_ok is False else "解不可行"
@@ -1077,6 +1140,7 @@ def _cached_solved_from_solution(solution_path: Path) -> dict | None:
         "bound": cached.get("bound"),
         "termination": cached.get("termination"),
         "solver_used": cached.get("solver_used"),
+        "sense": cached.get("sense"),
         "variables": cached["variables"],
         "resumed": True,
     }
@@ -1146,6 +1210,8 @@ def run_once(
         "problem": str(problem_dir.relative_to(REPO_ROOT)),
         "model": model,
         "with_annotations": with_annotations,
+        "worker_memory_limit_bytes": WORKER_MEM_LIMIT,
+        "nonoptimal_reference_policy": "pass_if_strictly_better_and_feasible",
         # 题面语言。中英是两组独立结果，不记下来就只能靠翻 prompt.txt 猜。
         "lang": lang,
         "started_at": datetime.now(timezone.utc).isoformat(),
@@ -1236,6 +1302,10 @@ def run_once(
         "total": len(entries),
         "judgeable": len(judgeable),
         "passed": len(passed),
+        "passed_by_better_than_nonoptimal_reference": sum(
+            bool(e.get("passed_by_better_than_nonoptimal_reference")) for e in entries
+        ),
+        "reference_optimal": sum(e.get("reference_status") == "optimal" for e in entries),
         "unjudgeable": len(entries) - len(judgeable),
         "pass_rate": (len(passed) / len(judgeable)) if judgeable else None,
     }
@@ -1383,6 +1453,7 @@ SCHEME_FUNCS = (
     check_feasibility,
     check_against_reference,
     close,
+    better_with_tolerance,
     load_reference,
     judge_instance,
 )
@@ -1409,6 +1480,7 @@ def scheme_fingerprint(timeout: int) -> str:
         f"rel_tol={REL_TOL}",
         f"abs_tol={ABS_TOL}",
         f"timeout={timeout}",
+        f"worker_mem_limit={WORKER_MEM_LIMIT}",
     ]
     parts += [inspect.getsource(fn) for fn in SCHEME_FUNCS]
     return _sha(parts)

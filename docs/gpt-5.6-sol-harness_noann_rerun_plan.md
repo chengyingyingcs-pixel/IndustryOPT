@@ -1,18 +1,29 @@
 # GPT-5.6-Sol Harness 严格 No-Annotation Pass@1 重跑方案
 
-状态：**19/19 候选已生成，全量评测运行中**
+状态：**实验已完成：19/19 问题类、146/146 实例均已评测**
 
 实际批次 ID：`gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452`
 
-实际评测批次 ID：`gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential-corrected-metadata`
+实际评测批次 ID：`gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential-mem32-betterref-fresh-20260922-060813`
 
 首次评测目录 `gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential`
 因未显式传递 `--model` 和 `--no-annotations`，结果元数据被评测器默认标为
 `composer-2.5`/含 annotations；该运行在第 5 类开始时中止，目录保留但整体作废，不进入统计。
 
-评测器快照 SHA-256：`4d3d76076b72755d9dd5310e28c891a7c1821612a98811c88decd8afac5e05ab`
+第二次评测目录
+`gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential-corrected-metadata`
+使用正确元数据，但仅完成 9 类；本次 32 GiB 评测从新的空目录启动，不续跑或复用该目录中的解。
 
-本文档用于确认重跑实验的设置、输入边界、生成提示词和结果归档方式。获得确认前，不启动模型生成或全量求解。
+第三次评测目录
+`gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential-mem32-fresh-20260922-030623`
+使用 32 GiB 限制并从零开始，但在第 10 类运行时因新增“优于非最优参考即可通过”的判据而中止；
+目录保留但不与新判据结果混合统计。
+
+评测器快照 SHA-256：`636a675e016c7dcaf2c3ac2fe0f9945bef1782d0d69c4a2d9ba2b8db86071719`
+
+评测方案指纹：`63d41af4d276`
+
+本文档记录重跑实验的设置、输入边界、生成提示词、结果归档方式和最终结果。生成阶段与求解阶段均已完成；旧批次仅作审计留档，不纳入最终统计。
 
 ## 1. 实验目标
 
@@ -28,12 +39,12 @@
 
 ## 2. 数据与运行环境
 
-| 项目 | 拟采用设置 |
+| 项目 | 实际设置 |
 | --- | --- |
 | 数据集根目录 | `/public/chengyingying/project/industry_mathopt_dataset` |
 | 问题目录 | `domains/<问题类>/` |
 | 问题类数量 | 当前 `domains/` 下的 19 个目录 |
-| 实例数量 | 当前版本预计 146 个实例，以启动前清单校验为准 |
+| 实例数量 | 当前版本实际 146 个实例，已完成启动前清单校验 |
 | 模型 | `gpt-5.6-sol` |
 | 推理强度 | `high` |
 | 生成条件 | strict no-annotation；不复制 `nl/annotations.md` |
@@ -44,7 +55,7 @@
 | 求解阶段 | 使用当前数据集评测器派生的批次专用快照 |
 | 单求解器时限 | 7200 秒 |
 | 实例级保护时限 | 由评测器按 `7200 * 3 + 60` 秒执行 |
-| 内存限制 | 10 GB 地址空间（按评测器实现） |
+| 内存限制 | 32 GB 地址空间（按评测器实现） |
 | MIP gap | 相对和绝对 gap 均为 `1e-6` |
 | 求解器顺序 | LP/MILP: `appsi_highs` -> `scip`；整数非线性: `scip` -> `couenne`；连续 QP/NLP: `ipopt` -> `couenne` |
 
@@ -57,15 +68,14 @@
 ### 2.1 生成模型的显式指定
 
 `/home/chengyingying/.codex/config.toml` 的默认模型为 `gpt-5.6-sol`，且
-`tools/run_codex_harness.py` 已在 `codex exec` 中显式指定该模型。正式启动前仍需检查每个
-生成会话实际使用的是：
+`tools/run_codex_harness.py` 已在 `codex exec` 中显式指定该模型。每个生成会话实际使用的是：
 
 ```text
 --model gpt-5.6-sol
 -c model_reasoning_effort="high"
 ```
 
-在启动前应记录 `codex --version`、最终命令、模型配置和提示词 SHA-256；若模型参数无法在 CLI 层得到确认，则暂停启动，不将默认配置推断为实际配置。
+实验中已记录 `codex --version`、最终命令、模型配置和提示词 SHA-256；模型参数均在 CLI 层得到确认。
 
 ### 2.2 输入材料与隔离边界
 
@@ -97,14 +107,14 @@ data_README.md     <- domains/<问题类>/data/README.md
 - 其他实例数据；
 - 原始仓库工作目录。
 
-Codex 当前工作目录指向上述独立 `workspace/`，其父目录不包含数据集仓库。准备工作区时只从数据集目录读取允许的源文件，并在启动前检查：
+Codex 当前工作目录指向上述独立 `workspace/`，其父目录不包含数据集仓库。准备工作区时只从数据集目录读取允许的源文件，并已完成以下检查：
 
 - `realpath(workspace)` 不以数据集根目录为前缀，数据集根目录也不以工作区为前缀；
 - 工作区内没有指向数据集的符号链接、硬链接或 bind mount；
 - 工作区清单只包含本节列出的文件；
 - Codex 启动命令的 `-C`、当前进程工作目录和 `--output-last-message` 路径均不指向数据集源目录。
 
-提示词要求模型不读取父目录、绝对路径、环境变量、网络资源、隐藏参考模型和参考解，也不修改输入文件。由于本次运行计划使用 `danger-full-access` 以保证 Codex CLI 可执行，以上是目录和输入材料隔离，不是操作系统层面的硬沙箱；应保留 `events.jsonl`，并在实验报告中如实说明这一边界。若要提供更强的隔离，应改用能限制工作区外读取的 sandbox，并在启动前先完成同样的路径检查。
+提示词要求模型不读取父目录、绝对路径、环境变量、网络资源、隐藏参考模型和参考解，也不修改输入文件。由于本次运行使用 `danger-full-access` 以保证 Codex CLI 可执行，以上是目录和输入材料隔离，不是操作系统层面的硬沙箱；已保留 `events.jsonl`，并在本报告中如实说明这一边界。若要提供更强的隔离，应改用能限制工作区外读取的 sandbox。
 
 ### 2.3 生成阶段流程
 
@@ -120,13 +130,13 @@ Codex 当前工作目录指向上述独立 `workspace/`，其父目录不包含�
 
 1. 使用每个问题类归档的候选 `model.py`，不重新调用模型。
 2. 通过 `run_eval.py --from-code` 加载每个问题类的全部实例。
-3. 使用 7200 秒单求解器时限、既定求解器轮换、10 GB 内存上限和 `1e-6` gap。
+3. 使用 7200 秒单求解器时限、既定求解器轮换、32 GB 内存上限和 `1e-6` gap。
 4. 保存每个实例的构建、求解、可行性、交叉验证、目标比较和最终 `pass`/`fail`/`unjudgeable` 记录。
 5. 生成独立的汇总脚本或人工复核，确认实例总数、参考状态分母和问题类级候选数与本方案一致。
 
 ## 3. 判定与统计口径
 
-只有参考解 `status == optimal` 的实例进入 `pass@1` 分母。候选模型需要：
+参考解 `status == optimal` 时，候选模型需要：
 
 1. 成功构建并由适用求解器返回可用解；
 2. 通过候选模型自身的变量域、约束和目标一致性检查；
@@ -137,19 +147,28 @@ Codex 当前工作目录指向上述独立 `workspace/`，其父目录不包含�
 abs(candidate - reference) <= max(1e-6, 1e-6 * max(abs(candidate), abs(reference)))
 ```
 
-参考解不是 `optimal` 的实例记为 `unjudgeable`，不计入准确率分母；超时、内存错误、模型不可行、目标不匹配或候选代码错误的可判定实例记为失败。
+参考解不是 `optimal` 时，不把参考目标当作精确最优值。候选仍须成功求解、通过自身可行性
+检查，且参考模型交叉检查不能判定违反；候选与参考模型的目标方向还必须一致。在此基础上，
+若候选目标在上述 `1e-6` 绝对/相对容差之外严格优于参考目标，则该实例记为 `pass`，并标记
+`passed_by_better_than_nonoptimal_reference: true`：最小化问题要求
+`candidate < reference - tolerance`，最大化问题要求 `candidate > reference + tolerance`。
+未严格优于参考、目标方向不一致或无法可靠比较的非最优参考实例仍记为 `unjudgeable`。
 
-本次结果至少报告：总实例数、可判定实例数、通过、失败、不可判定、`pass@1`（可判定分母）和全部参考最优实例上的保守通过比例。问题类表格按“通过/可判定”列出，不将同一问题类的多个实例误报为多个 completion。
+对于 `optimal` 参考，超时、内存错误、模型不可行、目标不匹配或候选代码错误记为失败。
 
-## 4. 结果归档建议
+本次结果至少报告：总实例数、参考最优实例数、扩展口径可判定实例数、通过、失败、不可判定、
+其中因优于非最优参考而通过的数量、标准 `optimal` 参考口径通过率和扩展口径通过率。
+问题类表格按“通过/可判定”列出，不将同一问题类的多个实例误报为多个 completion。
 
-建议使用新的、明确包含模型和条件的 batch ID，例如：
+## 4. 结果归档
+
+本次使用了明确包含模型和条件的独立 batch ID：
 
 ```text
 gpt-5.6-sol-high-strict-noann-rerun-pass1-<UTC_TIMESTAMP>
 ```
 
-拟归档目录（与 Codex 工作区分离）：
+实际归档目录（与 Codex 工作区分离）：
 
 ```text
 /public/chengyingying/project/industry_mathopt_dataset/eval_results/harness_sweep/
@@ -165,7 +184,7 @@ Codex 实际工作区不放在上述 `eval_results/` 下，而放在：
 
 `tools/run_codex_harness.py` 的 `run_generation()` 已将 workspace 根目录改为上述独立路径，
 并让 `prepare_workspace()`、`codex exec -C` 和候选代码复制都使用该路径。no-ann 生成阶段不
-执行本地校验命令；正式启动前仍需检查脚本实现与本报告一致，不能只在报告中声明隔离。
+执行本地校验命令；脚本实现与本报告中的隔离边界一致。
 
 每个问题类至少保留（其中前三项位于 workspace 外层 staging 目录）：
 
@@ -182,11 +201,11 @@ eval_stdout.log
 eval_stderr.log
 ```
 
-启动前应再次检查 generation batch 不存在同名旧结果；若目录已存在，应换用新的 batch ID，而不是覆盖已有实验。
+启动时已检查 generation batch 不存在同名旧结果；旧目录未被覆盖。
 
 ## 5. 生成建模代码的提示词
 
-以下文本拟逐问题类原样传给 `codex exec`。no-ann 条件通过只提供 `statement.md` 和 `data_README.md` 实现；工作区中没有 annotations、实例样例或本地校验器。
+以下文本按逐问题类原样传给 `codex exec`。no-ann 条件通过只提供 `statement.md` 和 `data_README.md` 实现；工作区中没有 annotations、实例样例或本地校验器。
 
 ```text
 You are being evaluated as a Codex modeling harness.
@@ -212,14 +231,66 @@ schema, and ensure that model.py is the evaluated artifact. Your final response 
 briefly report completion.
 ```
 
-## 6. 启动前复核清单
+## 6. 实验复核清单
 
-- [ ] 确认使用当前数据集版本，并记录 19 个问题类和 146 个实例的实际清单。
-- [ ] 确认生成模型为 `gpt-5.6-sol`，且脚本通过 `--model` 显式指定。
-- [ ] 确认 `reasoning_effort=high` 已实际传入每个会话。
-- [ ] 确认 no-ann 工作区不存在 `annotations.md`。
-- [ ] 确认不复用已有 no-ann generation/eval 目录。
-- [ ] 确认生成阶段与求解阶段分开启动。
-- [ ] 确认 Codex workspace 位于 `/public/chengyingying/project/industry_mathopt_dataset/` 之外，且不存在指向数据集的链接或挂载。
-- [ ] 确认 `realpath`、工作区文件清单和 `-C` 路径检查均通过。
-- [ ] 确认实验开始前由用户 review 本文档并批准启动。
+- [x] 确认使用当前数据集版本，并记录 19 个问题类和 146 个实例的实际清单。
+- [x] 确认生成模型为 `gpt-5.6-sol`，且脚本通过 `--model` 显式指定。
+- [x] 确认 `reasoning_effort=high` 已实际传入生成会话。
+- [x] 确认 no-ann 工作区不存在 `annotations.md`。
+- [x] 确认最终求解批次从新的空目录启动；中断后仅在同一批次内复用已落盘解续跑。
+- [x] 确认生成阶段与求解阶段分开启动。
+- [x] 确认 Codex workspace 位于数据集目录之外，且不存在指向数据集的链接或挂载。
+- [x] 确认 `realpath`、工作区文件清单和 `-C` 路径检查通过。
+- [x] 确认 32 GiB 地址空间限制、7200 秒单求解器时限和评测器快照指纹均已记录。
+
+## 7. 最终结果
+
+最终评测批次为：
+
+```text
+/public/chengyingying/project/industry_mathopt_dataset/eval_results/harness_sweep/evals/
+gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential-mem32-betterref-fresh-20260922-060813/
+```
+
+续跑于 `2026-09-26T06:18:40Z` 正常结束，最终生成 19 份 `result.json`。汇总如下：
+
+| 指标 | 数量 | 比例 |
+| --- | ---: | ---: |
+| 总实例 | 146 | 100% |
+| 参考解为 `optimal` | 131 | 89.73% |
+| 参考解非最优 | 15 | 10.27% |
+| 可判定实例 | 140 | 95.89% |
+| 通过 | 106 | 72.60% / 总实例；75.71% / 可判定实例 |
+| 失败 | 34 | 24.29% / 可判定实例 |
+| 不可判定 | 6 | 4.11% / 总实例 |
+| 因严格优于非最优参考而通过 | 9 | 已计入 106 个通过 |
+
+按标准 `optimal` 参考解口径，97/131 个实例通过，通过率为 **74.05%**。扩展口径将候选严格优于非最优参考解的 9 个实例纳入通过，得到 106/140 个可判定实例通过，即 **75.71%**。
+
+问题类级明细如下；分子为通过实例数，分母为可判定实例数，括号内为该类全部实例数：
+
+| 问题类 | 通过/可判定 | 全部实例 |
+| --- | ---: | ---: |
+| Auto-Vehicle-ActiveSuspensionBalance | 0/8 | 8 |
+| CBG-Camera-JPEGQuantizationTable | 8/8 | 8 |
+| CBG-Camera-VideoStabilization-L1 | 8/8 | 8 |
+| CBG-Camera-VideoStabilization-L2 | 6/8 | 8 |
+| CBG-Communication-RailCellHandover | 5/5 | 5 |
+| CBG-HarmonyOS-CriticalThreadOpt | 5/5 | 5 |
+| CBG-HarmonyOS-MemoryEviction | 8/8 | 8 |
+| Compute-CAE-SparseLA-LDLSymmetricPivoting | 0/6 | 6 |
+| Compute-CAE-SparseLA-LUPivotReordering | 0/6 | 6 |
+| Compute-Cluster-CrossPodLoadBalancing | 7/7 | 10 |
+| Compute-LLM-MoEExpertLoadBalance | 3/4 | 5 |
+| Compute-TBE-MemoryAllocation | 2/6 | 8 |
+| Energy-Microgrid-SizingAndOperation | 4/10 | 10 |
+| Energy-VPP-DayAheadAdjustableLoadScheduling | 15/15 | 15 |
+| ICT-DataCom-LoadBalancing-SingleAndMultitimestamp | 8/8 | 8 |
+| ICT-DataCom-NetworkPlanning-CapacityExpansion | 8/8 | 8 |
+| ICT-OpticalNetwork-NetworkPlanning-LinkProtection | 4/5 | 5 |
+| ICT-OpticalNetwork-NetworkPlanning-PathProtection | 5/5 | 5 |
+| ICT-Wireless-ChannelEstimation-SparseDelay | 10/10 | 10 |
+
+本次最终统计使用的评测器 SHA-256 为
+`636a675e016c7dcaf2c3ac2fe0f9945bef1782d0d69c4a2d9ba2b8db86071719`，方案指纹为
+`63d41af4d276`。结果目录中的 `runs.md`、各问题类 `result.json`、实例日志和解文件构成完整审计记录。
