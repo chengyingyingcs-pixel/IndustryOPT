@@ -946,6 +946,11 @@ def better_with_tolerance(candidate: float, reference: float, sense: int) -> boo
     return (candidate - reference) * sense < -tolerance
 
 
+def no_worse_with_tolerance(candidate: float, reference: float, sense: int) -> bool:
+    """候选是否不劣于参考值（严格更优或在评分容差内持平）。"""
+    return close(candidate, reference) or better_with_tolerance(candidate, reference, sense)
+
+
 def load_reference(problem_dir: Path, inst_id: str) -> dict | None:
     path = problem_dir / "solution" / f"{inst_id}.json"
     if not path.is_file():
@@ -963,9 +968,9 @@ def judge_instance(
 ) -> dict:
     """判一个实例。
 
-    status == optimal 的参考解按目标匹配判定。对 feasible/heuristic 参考解，候选
-    只有在通过可行性门、目标方向一致且目标值在评分容差之外严格优于参考值时才通过；
-    其余情况仍为不可判定，避免把一个未证最优的参考值当作精确答案。
+    status == optimal 的参考解按目标匹配判定。对 feasible/heuristic 参考解，实例仍然
+    可判定：候选通过可行性门、目标方向一致，且目标严格优于或在评分容差内等于参考值时
+    通过；候选更差时失败。只有缺少参考目标或目标方向等无法比较的实例才不可判定。
     """
     inst_id = inst_dir.name
     entry: dict = {"instance": inst_id}
@@ -978,9 +983,10 @@ def judge_instance(
     ref_status = ref.get("status")
     entry["reference_status"] = ref_status
     entry["reference_objective"] = ref.get("objective")
-    judgeable = ref_status == "optimal"
+    ref_obj = ref.get("objective")
+    judgeable = ref_obj is not None
     if not judgeable:
-        entry["unjudgeable_reason"] = f"参考解 status 为 {ref_status}，不是已证最优"
+        entry["unjudgeable_reason"] = "参考解没有目标值，无法比较"
 
     solved = solve_generated(model_path, inst_dir, timeout, log_path)
     entry["termination"] = solved.get("termination")
@@ -999,7 +1005,11 @@ def judge_instance(
         # 记成 fail 会让一个 QP 数据集在缺 ipopt 的机器上 100% 不通过，读报告的人
         # 会以为是模型的问题。
         if solved.get("no_solver"):
-            entry.update(verdict=UNJUDGEABLE, no_solver=True, reason=reason)
+            entry.update(
+                verdict=FAIL if judgeable else UNJUDGEABLE,
+                no_solver=True,
+                reason=reason,
+            )
             return entry
         # 求解器在时限内没找到可行解，不代表模型建错了，单独标记以便报告里区分
         entry["solver_timeout"] = "maxTimeLimit" in str(solved.get("termination", "")) or "超时" in reason
@@ -1062,64 +1072,54 @@ def judge_instance(
         entry["feasible"] = False
 
     # 结论一：目标值
-    ref_obj = ref.get("objective")
     if ref_obj is not None:
         entry["objective_matched"] = close(float(solved["objective"]), float(ref_obj))
 
-    if not judgeable:
+    if ref_obj is None:
         candidate_sense = solved.get("sense")
         entry["candidate_objective_sense"] = candidate_sense
-        if not feasible:
-            detail = (entry.get("reference_issues") or entry.get("feasibility_issues") or [""])[0]
-            entry.update(
-                verdict=UNJUDGEABLE,
-                reason=f"{entry['unjudgeable_reason']}；候选解未通过可行性检查：{detail}",
-            )
-        elif ref_obj is None:
-            entry.update(
-                verdict=UNJUDGEABLE,
-                reason=f"{entry['unjudgeable_reason']}；参考解没有目标值，无法比较",
-            )
-        elif ref_sense not in (-1, 1):
-            entry.update(
-                verdict=UNJUDGEABLE,
-                reason=f"{entry['unjudgeable_reason']}；无法确定参考模型目标方向",
-            )
-        elif candidate_sense != ref_sense:
-            entry.update(
-                verdict=UNJUDGEABLE,
-                reason=(
-                    f"{entry['unjudgeable_reason']}；候选与参考模型目标方向不一致"
-                    f"（候选 {candidate_sense}，参考 {ref_sense}）"
-                ),
-            )
-        elif better_with_tolerance(float(solved["objective"]), float(ref_obj), ref_sense):
-            entry.update(
-                verdict=PASS,
-                passed_by_better_than_nonoptimal_reference=True,
-                reason=(
-                    f"候选目标严格优于非最优参考：{float(solved['objective']):.9g} vs "
-                    f"参考 {float(ref_obj):.9g}"
-                ),
-            )
-        else:
-            entry.update(
-                verdict=UNJUDGEABLE,
-                reason=(
-                    f"{entry['unjudgeable_reason']}；候选目标未严格优于参考："
-                    f"{float(solved['objective']):.9g} vs {float(ref_obj):.9g}"
-                ),
-            )
+        entry.update(verdict=UNJUDGEABLE, reason=entry["unjudgeable_reason"])
     elif not feasible:
         detail = (entry.get("reference_issues") or entry.get("feasibility_issues") or [""])[0]
         where = "代入参考模型后不可行" if ref_ok is False else "解不可行"
         entry.update(verdict=FAIL, reason=f"{where}：{detail}" if detail else where)
-    elif not entry["objective_matched"]:
+    elif ref_sense not in (-1, 1):
+        entry.update(
+            verdict=UNJUDGEABLE,
+            reason="无法确定参考模型目标方向，无法比较候选与参考目标",
+        )
+    elif solved.get("sense") != ref_sense:
+        entry.update(
+            verdict=UNJUDGEABLE,
+            reason=(
+                f"候选与参考模型目标方向不一致（候选 {solved.get('sense')}，"
+                f"参考 {ref_sense}）"
+            ),
+        )
+    elif ref_status == "optimal" and not entry["objective_matched"]:
         entry.update(
             verdict=FAIL,
             reason=f"目标值不一致：{solved['objective']:.9g} vs 参考 {float(ref_obj):.9g}",
         )
+    elif ref_status != "optimal" and not no_worse_with_tolerance(
+        float(solved["objective"]), float(ref_obj), ref_sense
+    ):
+        entry.update(
+            verdict=FAIL,
+            reason=(
+                f"候选目标劣于非最优参考：{float(solved['objective']):.9g} vs "
+                f"参考 {float(ref_obj):.9g}"
+            ),
+        )
     else:
+        if ref_status != "optimal":
+            entry["passed_by_better_than_nonoptimal_reference"] = better_with_tolerance(
+                float(solved["objective"]), float(ref_obj), ref_sense
+            )
+            entry["reason"] = (
+                f"候选目标不劣于非最优参考：{float(solved['objective']):.9g} vs "
+                f"参考 {float(ref_obj):.9g}"
+            )
         entry["verdict"] = PASS
     return entry
 
@@ -1211,7 +1211,7 @@ def run_once(
         "model": model,
         "with_annotations": with_annotations,
         "worker_memory_limit_bytes": WORKER_MEM_LIMIT,
-        "nonoptimal_reference_policy": "pass_if_strictly_better_and_feasible",
+        "nonoptimal_reference_policy": "judgeable_pass_if_not_worse_and_feasible",
         # 题面语言。中英是两组独立结果，不记下来就只能靠翻 prompt.txt 猜。
         "lang": lang,
         "started_at": datetime.now(timezone.utc).isoformat(),
@@ -1454,6 +1454,7 @@ SCHEME_FUNCS = (
     check_against_reference,
     close,
     better_with_tolerance,
+    no_worse_with_tolerance,
     load_reference,
     judge_instance,
 )
@@ -1478,6 +1479,7 @@ def scheme_fingerprint(timeout: int) -> str:
         SECTION_TEMPLATE,
         WORKER,
         f"rel_tol={REL_TOL}",
+        "nonoptimal_reference_policy=judgeable_pass_if_not_worse_and_feasible",
         f"abs_tol={ABS_TOL}",
         f"timeout={timeout}",
         f"worker_mem_limit={WORKER_MEM_LIMIT}",
