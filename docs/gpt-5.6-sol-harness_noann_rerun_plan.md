@@ -309,12 +309,92 @@ gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential
 
 | 原因 | 数量 | 问题类/实例 | 证据与判断 |
 | --- | ---: | --- | --- |
-| 最优参考目标值不匹配 | 21 | `Auto-Vehicle-ActiveSuspensionBalance` 8；`CBG-Camera-VideoStabilization-L2` 1（`inst_003`）；`Compute-LLM-MoEExpertLoadBalance` 1（`inst_004`）；`Compute-TBE-MemoryAllocation` 4（`inst_001`、`003`、`004`、`005`）；`Energy-Microgrid-SizingAndOperation` 6（`inst_001`--`006`）；`ICT-OpticalNetwork-NetworkPlanning-LinkProtection` 1（`inst_003`） | 候选模型自身可行并返回解，但目标值不满足与 `optimal` 参考解的 `1e-6` 绝对/相对容差。除 MoE `inst_004` 达到 `maxTimeLimit` 外，其余均报告最优或正常终止。Energy-Microgrid 中候选值看似低于参考值，但参考解已标为 `optimal`，且变量命名不同导致参考模型交叉验证 abstain；因此按最优参考规则仍判失败。总体上反映目标函数、约束语义或单位/缩放与参考模型不一致。 |
-| 候选代码无法解析实例输入 | 12 | `Compute-CAE-SparseLA-LDLSymmetricPivoting` 6；`Compute-CAE-SparseLA-LUPivotReordering` 6 | 两个问题类的实例目录实际包含 `data.json` 和原始 Matrix Market `.mtx` 文件。生成代码分别报 `KeyError: 'matrix data not found'` 和 `ValueError: could not find Matrix Market payload in data`，在 `build()` 阶段退出，求解器未启动。根因是代码假定矩阵内容已经以某种 payload 形式出现在 `data` 字典中，没有按 `matrix_path`/实例文件读取或兼容评测器的数据表示。 |
+| 最优参考目标值不匹配 | 21 | 见下表 | 候选模型自身可行并返回解，但目标值不满足与 `optimal` 参考解的 `1e-6` 绝对/相对容差。除 MoE `inst_004` 达到 `maxTimeLimit` 外，其余均报告最优或正常终止。 |
+| 候选代码无法解析实例输入 | 12 | `Compute-CAE-SparseLA-LDLSymmetricPivoting` 6；`Compute-CAE-SparseLA-LUPivotReordering` 6 | 见下文的输入形状和触发路径说明。 |
 | 候选模型不可行 | 1 | `CBG-Camera-VideoStabilization-L2/inst_004` | IPOPT 返回 “local infeasibility”，Couenne 也报告 `Problem infeasible`，因此没有候选目标值。参考解为 `optimal`，属于候选模型约束或数据解释错误，而不是参考解不可判定。 |
 | 非最优参考下候选目标更差 | 5 | `Compute-Cluster-CrossPodLoadBalancing` `inst_005`、`inst_006`；`Compute-LLM-MoEExpertLoadBalance` `inst_005`；`Compute-TBE-MemoryAllocation` `inst_006`、`inst_007` | 这些实例的参考状态为 `feasible` 或 `heuristic`，但候选已通过可行性检查且目标劣于参考。按新口径，非最优参考不再导致不可判定；候选更差因此明确判失败。 |
 
 目标不匹配的失败实例中，候选通常能通过自身可行性检查，但参考模型交叉检查因变量命名/变量族不同而 abstain；这只能说明候选模型内部自洽，不能证明它实现了题目要求。尤其是候选目标显著偏离参考值的 ActiveSuspension，以及固定成组偏离的 TBE/Microgrid，优先怀疑漏约束、目标项遗漏、单位换算或输入字段解释错误，而不是求解器精度问题。
+
+#### 21 个目标不匹配实例明细
+
+下表中的 `gap = 候选目标 - 参考目标`，`相对 gap = |gap| / |参考目标|`。本批实例全部是最小化
+问题，因此正 gap 表示候选更差；Energy-Microgrid 的负 gap 表示候选数值更低，但参考状态是
+`optimal`，且候选变量与参考模型不兼容、无法交叉验证，所以不能据此推翻参考最优性，仍按
+目标不匹配判失败。
+
+| 问题类 | 实例 | 候选目标 | 参考目标 | gap | 相对 gap | 求解状态 | 具体分类 |
+| --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| ActiveSuspensionBalance | `inst_001` | 132.005127 | 3.75387157 | +128.251255 | 3,416.51% | IPOPT optimal | 目标/约束语义偏离 |
+| ActiveSuspensionBalance | `inst_002` | 7.38672351e8 | 2.36240738 | +7.38672348e8 | 3.12678e10% | IPOPT optimal | 目标尺度或单位严重偏离 |
+| ActiveSuspensionBalance | `inst_003` | 7.40268553e8 | 2.27248698 | +7.40268551e8 | 3.25753e10% | IPOPT optimal | 目标尺度或单位严重偏离 |
+| ActiveSuspensionBalance | `inst_004` | 503.295387 | 12.5549691 | +490.740418 | 3,908.73% | IPOPT optimal | 目标/约束语义偏离 |
+| ActiveSuspensionBalance | `inst_005` | 6.99127308e8 | 3.42695458 | +6.99127304e8 | 2.04008e10% | IPOPT optimal | 目标尺度或单位严重偏离 |
+| ActiveSuspensionBalance | `inst_006` | 4.06190732e8 | 0.660675098 | +4.06190732e8 | 6.14812e10% | IPOPT optimal | 目标尺度或单位严重偏离 |
+| ActiveSuspensionBalance | `inst_007` | 2.18108128e9 | 2.85750414 | +2.18108128e9 | 7.63282e10% | IPOPT optimal | 目标尺度或单位严重偏离 |
+| ActiveSuspensionBalance | `inst_008` | 2.79843259e9 | 16.3057284 | +2.79843257e9 | 1.71623e10% | IPOPT optimal | 目标尺度或单位严重偏离 |
+| Camera-VideoStabilization-L2 | `inst_003` | 0.0536783141 | 0.0427251924 | +0.0109531217 | 25.6362% | IPOPT optimal | 稳定性约束/目标项不完整 |
+| MoEExpertLoadBalance | `inst_004` | 1148.178312 | 1146.350130 | +1.828182 | 0.159479% | SCIP maxTimeLimit | 候选可行但尚未达到参考目标 |
+| TBE-MemoryAllocation | `inst_001` | 104.000307 | 102.381422 | +1.61888446 | 1.58123% | HiGHS optimal | 分配/切换成本约束或目标项偏离 |
+| TBE-MemoryAllocation | `inst_003` | 147.278060 | 145.748959 | +1.52910160 | 1.04913% | HiGHS optimal | 分配/切换成本约束或目标项偏离 |
+| TBE-MemoryAllocation | `inst_004` | 288.779579 | 281.840641 | +6.93893824 | 2.46201% | HiGHS optimal | 分配/切换成本约束或目标项偏离 |
+| TBE-MemoryAllocation | `inst_005` | 430.525149 | 414.975160 | +15.5499889 | 3.74721% | HiGHS optimal | 分配/切换成本约束或目标项偏离 |
+| Microgrid-SizingAndOperation | `inst_001` | 7.98971608e6 | 8.03681194e6 | -4.70958591e4 | 0.586002% | HiGHS optimal | 候选目标低于参考但未通过参考交叉验证 |
+| Microgrid-SizingAndOperation | `inst_002` | 7.98971608e6 | 8.03681194e6 | -4.70958591e4 | 0.586002% | HiGHS optimal | 同上，候选模型语义不兼容 |
+| Microgrid-SizingAndOperation | `inst_003` | 9.24585564e6 | 9.29694642e6 | -5.10907804e4 | 0.549544% | HiGHS optimal | 同上，候选模型语义不兼容 |
+| Microgrid-SizingAndOperation | `inst_004` | 9.24585564e6 | 9.29694642e6 | -5.10907804e4 | 0.549544% | HiGHS optimal | 同上，候选模型语义不兼容 |
+| Microgrid-SizingAndOperation | `inst_005` | 9.35146550e6 | 9.41167951e6 | -6.02140113e4 | 0.639780% | HiGHS optimal | 同上，候选模型语义不兼容 |
+| Microgrid-SizingAndOperation | `inst_006` | 9.35146550e6 | 9.41167951e6 | -6.02140113e4 | 0.639780% | HiGHS optimal | 同上，候选模型语义不兼容 |
+| LinkProtection | `inst_003` | 30 | 24 | +6 | 25.0000% | HiGHS optimal | 备份路径/选择约束偏离 |
+
+从模式上看，ActiveSuspension 有 8 个实例成组失败，且其中 6 个达到 `10^8`--`10^9` 数量级；
+这不是求解器没有收敛，而是目标表达式、单位或约束建模发生了系统性偏差。TBE 的 4 个失败按
+实例规模递增，gap 从 1.53 增至 15.55，说明某类成本项或容量/切换约束没有按参考模型复现。
+Microgrid 的 6 个候选目标都比参考低约 0.55%--0.64%，但参考模型交叉验证因变量族不同而
+abstain；在“参考已证最优”的前提下，这更像漏掉了惩罚项或运行约束，而不是候选真的找到了更优解。
+
+#### 12 个 CAE 输入解析失败的具体原因
+
+这 12 个实例的目录结构不是“一个 JSON 里包含矩阵数值”，而是：
+
+```text
+data/inst_001/
+  data.json       # n、threshold_u、matrix_path 等元数据
+  bcsstk01.mtx    # 或 west0067.mtx，实际 Matrix Market 矩阵文件
+```
+
+评测器的 `load_data()` 对单 JSON 实例返回 `data.json` 的字典；当发现 `.mtx` 且存在
+`matrix_path` 时，只把相对路径改成实例目录下的绝对路径，例如：
+
+```json
+{
+  "matrix_path": "/.../data/inst_001/bcsstk01.mtx",
+  "n": 48,
+  "threshold_u": 10000.0
+}
+```
+
+它不会把 `.mtx` 的全文自动塞进 `data["matrix"]`，也不会把 Matrix Market 行解析成
+`entries` 列表；候选 `build(data)` 必须自己根据 `matrix_path` 打开并解析文件，或明确支持
+评测器传入的结构化矩阵表示。
+
+两份候选代码的触发点不同：
+
+1. `LDLSymmetricPivoting` 的 `_config_and_values()` 能找到 `n` 和配置，但 `build()` 随后
+   只从 `cfg["matrix"]` 或预先存在的 `files` 容器中寻找矩阵。当前 `data` 只有
+   `matrix_path`，没有 `matrix` 字段，最终在 `model.py:204` 抛出
+   `KeyError("matrix data not found")`。例如 `inst_001` 的 `data.json` 只声明
+   `matrix_path: "bcsstk01.mtx"`，所以代码没有任何矩阵条目可供 `_parse_matrix()` 使用。
+2. `LUPivotReordering` 的 `_matrix_payload()` 只扫描映射值中已经存在的 Matrix Market 文本、
+   行列表或 `entries/rows/data` 结构；它不会把 `matrix_path` 当作文件路径去读取。当前输入
+   中 `data.json` 是元数据字典、`west0067.mtx` 是目录中的独立文件，扫描不到文本 payload，
+   所以在 `model.py:65` 抛出 `ValueError("could not find Matrix Market payload in data")`。
+
+因此，“无法解析实例输入”不是矩阵内容损坏，也不是 SCIP/Couenne/HiGHS 求解失败，而是
+候选模型与数据加载契约不匹配：模型把“矩阵文件路径”误当成“矩阵内容已经在 data 字典中”。
+这解释了为什么两个 CAE 问题类的全部 6+6 个实例都在求解器启动前以相同错误失败；修复方向是
+在 `build()` 中安全地解析 `matrix_path` 指向的 Matrix Market 文件（包括 symmetric/general、
+coordinate 格式和 1-based 下标），再构造模型。
 
 ### 8.2 非最优参考实例的重判
 
