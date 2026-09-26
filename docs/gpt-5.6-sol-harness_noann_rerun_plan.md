@@ -294,3 +294,36 @@ gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential
 本次最终统计使用的评测器 SHA-256 为
 `636a675e016c7dcaf2c3ac2fe0f9945bef1782d0d69c4a2d9ba2b8db86071719`，方案指纹为
 `63d41af4d276`。结果目录中的 `runs.md`、各问题类 `result.json`、实例日志和解文件构成完整审计记录。
+
+## 8. 失败与不可判定实例分析
+
+最终的 34 个失败实例均属于参考解为 `optimal` 的可判定集合，6 个不可判定实例均属于参考解
+不是已证最优的集合。失败不是由评测批次中断、内存上限或求解器未安装造成：32 GiB 地址空间
+限制有效，日志中没有 OOM；失败原因都记录在对应问题类的 `result.json` 和实例日志中。
+
+### 8.1 失败实例
+
+| 原因 | 数量 | 问题类/实例 | 证据与判断 |
+| --- | ---: | --- | --- |
+| 目标值不匹配 | 21 | `Auto-Vehicle-ActiveSuspensionBalance` 8；`CBG-Camera-VideoStabilization-L2` 1（`inst_003`）；`Compute-LLM-MoEExpertLoadBalance` 1（`inst_004`）；`Compute-TBE-MemoryAllocation` 4（`inst_001`、`003`、`004`、`005`）；`Energy-Microgrid-SizingAndOperation` 6（`inst_001`--`006`）；`ICT-OpticalNetwork-NetworkPlanning-LinkProtection` 1（`inst_003`） | 候选模型自身可行并返回解，但目标值不满足与 `optimal` 参考解的 `1e-6` 绝对/相对容差。除 MoE `inst_004` 达到 `maxTimeLimit` 外，其余均报告最优或正常终止。Energy-Microgrid 中候选值看似低于参考值，但参考解已标为 `optimal`，且变量命名不同导致参考模型交叉验证 abstain；因此不能把它当作可靠改进，按规则判失败。总体上反映目标函数、约束语义或单位/缩放与参考模型不一致。 |
+| 候选代码无法解析实例输入 | 12 | `Compute-CAE-SparseLA-LDLSymmetricPivoting` 6；`Compute-CAE-SparseLA-LUPivotReordering` 6 | 两个问题类的实例目录实际包含 `data.json` 和原始 Matrix Market `.mtx` 文件。生成代码分别报 `KeyError: 'matrix data not found'` 和 `ValueError: could not find Matrix Market payload in data`，在 `build()` 阶段退出，求解器未启动。根因是代码假定矩阵内容已经以某种 payload 形式出现在 `data` 字典中，没有按 `matrix_path`/实例文件读取或兼容评测器的数据表示。 |
+| 候选模型不可行 | 1 | `CBG-Camera-VideoStabilization-L2/inst_004` | IPOPT 返回 “local infeasibility”，Couenne 也报告 `Problem infeasible`，因此没有候选目标值。参考解为 `optimal`，属于候选模型约束或数据解释错误，而不是参考解不可判定。 |
+
+目标不匹配的失败实例中，候选通常能通过自身可行性检查，但参考模型交叉检查因变量命名/变量族不同而 abstain；这只能说明候选模型内部自洽，不能证明它实现了题目要求。尤其是候选目标显著偏离参考值的 ActiveSuspension，以及固定成组偏离的 TBE/Microgrid，优先怀疑漏约束、目标项遗漏、单位换算或输入字段解释错误，而不是求解器精度问题。
+
+### 8.2 不可判定实例
+
+| 问题类/实例 | 参考状态 | 候选与参考目标 | 判定原因 |
+| --- | --- | --- | --- |
+| `Compute-Cluster-CrossPodLoadBalancing/inst_003` | `feasible` | 0.288106018 vs 0.288106018 | 候选可行，但与非最优参考持平；没有证据证明候选严格更优。 |
+| `Compute-Cluster-CrossPodLoadBalancing/inst_005` | `feasible` | 0.321984640 vs 0.303570513 | 最小化问题中候选更差。 |
+| `Compute-Cluster-CrossPodLoadBalancing/inst_006` | `feasible` | 0.791192498 vs 0.770728788 | 最小化问题中候选更差。 |
+| `Compute-LLM-MoEExpertLoadBalance/inst_005` | `heuristic` | 4271.374525 vs 3415.537111 | 参考只是启发式解，且候选没有严格优于它。 |
+| `Compute-TBE-MemoryAllocation/inst_006` | `feasible` | 507.372130 vs 503.240967 | 最小化问题中候选更差。 |
+| `Compute-TBE-MemoryAllocation/inst_007` | `feasible` | 660.365010 vs 653.465794 | 最小化问题中候选更差。 |
+
+这 6 个实例不是候选代码被判错，而是当前证据不足以把结果称为通过或失败：参考目标没有最优性证明，且候选没有在容差之外严格改善它。相反，9 个非最优参考实例满足“候选可行且严格更优”条件，已按扩展规则计入通过，其中 CrossPod 4 个、TBE 1 个、Microgrid 4 个。
+
+### 8.3 结论与改进方向
+
+主要质量瓶颈集中在三种能力：从 `data.json` 与原始文件建立稳健输入适配、完整还原目标/约束语义、以及在无 annotations 条件下处理大规模/复杂非线性模型。下一轮改进应优先针对 CAE 两类的文件读取契约、ActiveSuspension 的目标与单位定义、Camera-L2 的可行性约束，以及 TBE/Microgrid 的目标项和容量约束进行定向复核；无需通过放宽判定容差来掩盖这些模型语义差异。
