@@ -1,12 +1,16 @@
 # GPT-5.6-Sol Harness 严格 No-Annotation Pass@1 重跑方案
 
-状态：**实验已完成：19/19 问题类、146/146 实例均已评测**
+状态：**原始全量实验已完成：19/19 问题类、146/146 实例均已评测；CAE 输入契约修正后的 12 个实例定向重测也已完成**
 
 实际批次 ID：`gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452`
 
 原始评测批次 ID：`gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential-mem32-betterref-fresh-20260922-060813`
 
 最终重判批次 ID：`gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential-mem32-betterref-rejudge-notworse-20260926-083558`
+
+最新 CAE 定向重测生成批次：`gpt-5.6-sol-high-strict-noann-pass1-cae-pathfix-20260926-100455`
+
+最新 CAE 定向重测评测批次：`gpt-5.6-sol-high-strict-noann-pass1-cae-pathfix-20260926-100455-timeout7200-sequential-mem32`
 
 首次评测目录 `gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential`
 因未显式传递 `--model` 和 `--no-annotations`，结果元数据被评测器默认标为
@@ -206,9 +210,9 @@ eval_stderr.log
 
 启动时已检查 generation batch 不存在同名旧结果；旧目录未被覆盖。
 
-## 5. 生成建模代码的提示词
+## 5. 最新生成提示词
 
-以下文本按逐问题类原样传给 `codex exec`。no-ann 条件通过只提供 `statement.md` 和 `data_README.md` 实现；工作区中没有 annotations、实例样例或本地校验器。
+以下文本是当前 `tools/run_codex_harness.py` 中实际传给 `codex exec` 的最新版提示词。它用于 CAE 输入契约修正后的定向重测；严格 no-annotation 条件仍只提供 `statement.md` 和 `data_README.md`，不提供 annotations、实例样例或本地校验器。
 
 ```text
 You are being evaluated as a Codex modeling harness.
@@ -223,9 +227,15 @@ this problem in model.py. The required API is:
     def build(data: dict) -> pyomo.environ.ConcreteModel
 
 Use only Python's standard library and pyomo.environ. Do not invoke a solver inside build().
-Do not hard-code values from any particular instance. Multi-file input is keyed by filename stem,
-and CSV rows are dictionaries of strings. Use actual identifiers from the data instead of
-assuming consecutive integer indices.
+Do not hard-code values from any particular instance. When an instance has one JSON file,
+build(data) receives its parsed JSON dictionary. If that JSON has matrix_path pointing to a
+separate .mtx file, the loader resolves matrix_path against the instance directory and passes
+the resulting absolute path; it does not put the matrix contents in data. During evaluation,
+build(data) must open that path and parse the Matrix Market file to construct the model.
+The workspace/absolute-path inspection restrictions above apply to code generation, not to
+reading a path supplied in data at evaluation time. For instances with multiple JSON/CSV
+files, data is keyed by filename stem; CSV rows are dictionaries of strings. Use actual
+identifiers from the data instead of assuming consecutive integer indices.
 
 Before finishing, inspect model.py for Pyomo reserved component names, invalid indexing,
 empty extrema, and constraints that accidentally evaluate to a Python bool. No sample data
@@ -255,7 +265,7 @@ briefly report completion.
 gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential-mem32-betterref-rejudge-notworse-20260926-083558/
 ```
 
-重判于 `2026-09-26T08:48Z` 左右完成，最终生成 19 份 `result.json`。重判只复用原始批次已落盘的解文件；缺少缓存解的失败实例重新执行了相同的建模/求解步骤。汇总如下：
+重判于 `2026-09-26T08:48Z` 左右完成，最终生成 19 份 `result.json`；随后对两个 CAE 问题类按最新版输入契约提示词完成 12 个实例定向重测。下面的最终统计将 CAE 定向重测结果替换进原始 146 个实例的对应位置，其他 17 个问题类沿用全量重判结果。
 
 | 指标 | 数量 | 比例 |
 | --- | ---: | ---: |
@@ -263,12 +273,12 @@ gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential
 | 参考解为 `optimal` | 131 | 89.73% |
 | 参考解非最优 | 15 | 10.27% |
 | 可判定实例 | 146 | 100% |
-| 通过 | 107 | 73.29% / 总实例；73.29% / 可判定实例 |
-| 失败 | 39 | 26.71% / 可判定实例 |
+| 通过 | 119 | 81.51% / 总实例；81.51% / 可判定实例 |
+| 失败 | 27 | 18.49% / 可判定实例 |
 | 不可判定 | 0 | 0% |
-| 因严格优于非最优参考而通过 | 9 | 已计入 107 个通过 |
+| 因严格优于非最优参考而通过 | 9 | 已计入 119 个通过 |
 
-按标准 `optimal` 参考解口径，97/131 个实例通过，通过率为 **74.05%**。新口径将 15 个非最优参考实例全部纳入可判定集合，其中 10 个通过（9 个严格更优、1 个容差内相等），最终得到 107/146 个可判定实例通过，即 **73.29%**。
+按标准 `optimal` 参考解口径，109/131 个实例通过，通过率为 **83.21%**。其中 97 个来自原始全量批次，新增的 12 个来自 CAE 定向重测。新口径将 15 个非最优参考实例全部纳入可判定集合，其中 10 个通过（9 个严格更优、1 个容差内相等），最终得到 119/146 个可判定实例通过，即 **81.51%**。
 
 问题类级明细如下；分子为通过实例数，分母为可判定实例数，括号内为该类全部实例数：
 
@@ -281,8 +291,8 @@ gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential
 | CBG-Communication-RailCellHandover | 5/5 | 5 |
 | CBG-HarmonyOS-CriticalThreadOpt | 5/5 | 5 |
 | CBG-HarmonyOS-MemoryEviction | 8/8 | 8 |
-| Compute-CAE-SparseLA-LDLSymmetricPivoting | 0/6 | 6 |
-| Compute-CAE-SparseLA-LUPivotReordering | 0/6 | 6 |
+| Compute-CAE-SparseLA-LDLSymmetricPivoting | 6/6 | 6 |
+| Compute-CAE-SparseLA-LUPivotReordering | 6/6 | 6 |
 | Compute-Cluster-CrossPodLoadBalancing | 8/10 | 10 |
 | Compute-LLM-MoEExpertLoadBalance | 3/5 | 5 |
 | Compute-TBE-MemoryAllocation | 2/8 | 8 |
@@ -298,9 +308,13 @@ gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential
 `d450a4c287804489e4a11da427c91e179bc6ffe76e63373be54839f8bcd77a0d`，方案指纹为
 `1939da46299a`。重判结果目录中的 `runs.md`、各问题类 `result.json`、实例日志和解文件构成完整审计记录；原始批次仍保留供对照。
 
+最终口径将第 9 节的 CAE 定向重测结果回写到上表对应的两个问题类，因此 CAE 显示为
+`6/6`，总体通过数由原始全量基线的 107/146 更新为 **119/146**。原始全量结果仍保留
+在批次目录中用于审计对照。
+
 ## 8. 失败与不可判定实例分析
 
-按新口径，最终 39 个失败实例和 0 个不可判定实例均已纳入可判定集合。15 个参考解非最优的
+按最终合并口径，27 个失败实例和 0 个不可判定实例均已纳入可判定集合。15 个参考解非最优的
 实例不再自动标记为不可判定：候选可行且目标不劣于参考（严格更优或容差内相等）即通过，候选
 劣于参考即失败。失败不是由评测批次中断、内存上限或求解器未安装造成：32 GiB 地址空间限制
 有效，日志中没有 OOM；失败原因都记录在对应问题类的 `result.json` 和实例日志中。
@@ -310,9 +324,9 @@ gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential
 | 原因 | 数量 | 问题类/实例 | 证据与判断 |
 | --- | ---: | --- | --- |
 | 最优参考目标值不匹配 | 21 | 见下表 | 候选模型自身可行并返回解，但目标值不满足与 `optimal` 参考解的 `1e-6` 绝对/相对容差。除 MoE `inst_004` 达到 `maxTimeLimit` 外，其余均报告最优或正常终止。 |
-| 候选代码无法解析实例输入 | 12 | `Compute-CAE-SparseLA-LDLSymmetricPivoting` 6；`Compute-CAE-SparseLA-LUPivotReordering` 6 | 见下文的输入形状和触发路径说明。 |
 | 候选模型不可行 | 1 | `CBG-Camera-VideoStabilization-L2/inst_004` | IPOPT 返回 “local infeasibility”，Couenne 也报告 `Problem infeasible`，因此没有候选目标值。参考解为 `optimal`，属于候选模型约束或数据解释错误，而不是参考解不可判定。 |
 | 非最优参考下候选目标更差 | 5 | `Compute-Cluster-CrossPodLoadBalancing` `inst_005`、`inst_006`；`Compute-LLM-MoEExpertLoadBalance` `inst_005`；`Compute-TBE-MemoryAllocation` `inst_006`、`inst_007` | 这些实例的参考状态为 `feasible` 或 `heuristic`，但候选已通过可行性检查且目标劣于参考。按新口径，非最优参考不再导致不可判定；候选更差因此明确判失败。 |
+| **合计** | **27** |  | 21 + 1 + 5；不可判定 0 |
 
 目标不匹配的失败实例中，候选通常能通过自身可行性检查，但参考模型交叉检查因变量命名/变量族不同而 abstain；这只能说明候选模型内部自洽，不能证明它实现了题目要求。尤其是候选目标显著偏离参考值的 ActiveSuspension，以及固定成组偏离的 TBE/Microgrid，优先怀疑漏约束、目标项遗漏、单位换算或输入字段解释错误，而不是求解器精度问题。
 
@@ -353,7 +367,7 @@ gpt-5.6-sol-high-strict-noann-pass1-rerun-20260921-100452-timeout7200-sequential
 Microgrid 的 6 个候选目标都比参考低约 0.55%--0.64%，但参考模型交叉验证因变量族不同而
 abstain；在“参考已证最优”的前提下，这更像漏掉了惩罚项或运行约束，而不是候选真的找到了更优解。
 
-#### 12 个 CAE 输入解析失败的具体原因
+#### 原始基线中的 12 个 CAE 输入解析失败及修复
 
 通俗地说，矩阵数值放在单独的 `.mtx` 文件里，`data.json` 只写了这个文件的地址。
 评测器把地址交给候选 `build(data)`，但不会替它打开文件；两份候选代码却以为矩阵
@@ -408,11 +422,12 @@ data/inst_001/
    中 `data.json` 是元数据字典、`west0067.mtx` 是目录中的独立文件，扫描不到文本 payload，
    所以在 `model.py:65` 抛出 `ValueError("could not find Matrix Market payload in data")`。
 
-因此，“无法解析实例输入”不是矩阵内容损坏，也不是 SCIP/Couenne/HiGHS 求解失败，而是
-候选模型与数据加载契约不匹配：模型把“矩阵文件路径”误当成“矩阵内容已经在 data 字典中”。
-这解释了为什么两个 CAE 问题类的全部 6+6 个实例都在求解器启动前以相同错误失败；修复方向是
-在 `build()` 中安全地解析 `matrix_path` 指向的 Matrix Market 文件（包括 symmetric/general、
-coordinate 格式和 1-based 下标），再构造模型。
+因此，原始基线中的“无法解析实例输入”不是矩阵内容损坏，也不是 SCIP/Couenne/HiGHS
+求解失败，而是候选模型与数据加载契约不匹配：模型把“矩阵文件路径”误当成“矩阵内容已经
+在 data 字典中”。这解释了为什么两个 CAE 问题类的全部 6+6 个实例都在求解器启动前以相同
+错误失败。最新版提示词明确要求在 `build()` 中读取 `data["matrix_path"]` 并解析其指向的
+Matrix Market 文件（包括 symmetric/general、coordinate 格式和 1-based 下标）；修正后的
+候选已通过第 9 节的 12/12 定向重测，因此这 12 个实例不再计入最终失败数。
 
 ### 8.2 非最优参考实例的重判
 
@@ -426,4 +441,77 @@ coordinate 格式和 1-based 下标），再构造模型。
 
 ### 8.3 结论与改进方向
 
-主要质量瓶颈集中在三种能力：从 `data.json` 与原始文件建立稳健输入适配、完整还原目标/约束语义、以及在无 annotations 条件下处理大规模/复杂非线性模型。下一轮改进应优先针对 CAE 两类的文件读取契约、ActiveSuspension 的目标与单位定义、Camera-L2 的可行性约束，以及 TBE/Microgrid 的目标项和容量约束进行定向复核；新口径只改变非最优参考实例的统计归类，不通过放宽最优参考的目标容差来掩盖模型语义差异。
+主要质量瓶颈集中在完整还原目标/约束语义，以及在无 annotations 条件下处理大规模/复杂非线性模型。CAE 的文件读取契约已通过最新版提示词和 12/12 定向重测修复；下一轮应优先针对 ActiveSuspension 的目标与单位定义、Camera-L2 的可行性约束，以及 TBE/Microgrid 的目标项和容量约束进行定向复核。不通过放宽最优参考的目标容差来掩盖模型语义差异。
+
+## 9. CAE 输入契约修正后的定向重测（2026-09-26）
+
+**本节是新的提示词条件下仅针对两个 CAE 问题类的定向重测；其结果已替换进第 7 节
+最终合并统计中对应的 12 个实例。**原始 19 类、146 实例全量基线仍作为审计对照保留。
+每类重新调用
+`gpt-5.6-sol`（`reasoning_effort=high`）生成一份候选 `model.py`，仍只提供
+`statement.md` 与 `data_README.md`，不提供实例、annotations 或本地校验器；
+然后用新候选分别评测该类全部 6 个实例。未修改数据集或评测器。
+
+修改发生在 `tools/run_codex_harness.py` 的 `PROMPT`：保留第 5 节其余要求，将笼统的
+“`Multi-file input is keyed by filename stem`”展开为准确的运行时接口约定：
+
+```text
+When an instance has one JSON file, build(data) receives its parsed JSON dictionary.
+If that JSON has matrix_path pointing to a separate .mtx file, the loader resolves
+matrix_path against the instance directory and passes the resulting absolute path;
+it does not put the matrix contents in data. During evaluation, build(data) must
+open that path and parse the Matrix Market file to construct the model.
+The workspace/absolute-path inspection restrictions above apply to code generation,
+not to reading a path supplied in data at evaluation time. For instances with
+multiple JSON/CSV files, data is keyed by filename stem.
+```
+
+完整提示词保存在每类生成工作区外层的 `prompt.txt`；SHA-256 为
+`2b95913545f576620a532b17d08248f4788e45422f295451ed40f992a2f6f2a7`。
+脚本新增 `--problems` 筛选参数，仅运行指定的两个问题类。生成和评测使用不同的
+新批次目录，未覆盖旧候选或旧结果：
+
+```text
+生成：/public/chengyingying/project/industry_mathopt_dataset/eval_results/harness_sweep/generations/gpt-5.6-sol-high-strict-noann-pass1-cae-pathfix-20260926-100455/
+评测：/public/chengyingying/project/industry_mathopt_dataset/eval_results/harness_sweep/evals/gpt-5.6-sol-high-strict-noann-pass1-cae-pathfix-20260926-100455-timeout7200-sequential-mem32/
+```
+
+评测器仍为第 2 节记录的快照（SHA-256
+`d450a4c287804489e4a11da427c91e179bc6ffe76e63373be54839f8bcd77a0d`，
+方案指纹 `1939da46299a`），单求解器时限 7200 秒，子进程地址空间上限
+32 GiB，目标匹配容差和非最优参考判据均不变。
+
+| 问题类 | 原始全量批次 | 新提示词重测 | 新批次参考最优 | 新批次不可判定 |
+| --- | ---: | ---: | ---: | ---: |
+| `Compute-CAE-SparseLA-LDLSymmetricPivoting` | 0/6 | 6/6 | 6 | 0 |
+| `Compute-CAE-SparseLA-LUPivotReordering` | 0/6 | 6/6 | 6 | 0 |
+| **合计（仅 CAE）** | **0/12** | **12/12** | **12** | **0** |
+
+两份新候选均在 `build(data)` 中打开 `data["matrix_path"]`，不再报输入解析错误。
+12 个实例均由 `appsi_highs` 返回最优解，通过候选模型自身可行性检查，目标值与
+最优参考值在容差内相等。逐例 `result.json` 的 `feasible_in_reference` 为 `null`，
+`reference_issues` 表明变量命名不同导致参考模型交叉检查无法执行；因此这些通过
+记录不等同于逐变量的双向交叉验证。除 CAE 两类被本节结果替换外，其余 17 类沿用原始
+全量结果；因此第 7 节的最终合并统计为 119/146，而不是原始基线的 107/146。
+
+### 9.1 CAE 定向重测的逐实例目标值
+
+下表来自两个新批次的 `result.json`。`gap = 候选目标 - 参考目标`，相对 gap 为
+`|gap| / |参考目标|`；全部 12 个实例的参考状态为 `optimal`。LU 的 `inst_001`
+虽然绝对 gap 为 `3.08e-8`，但相对 gap 仅 `1.45e-9`，低于 `1e-6` 判定容差，因此
+仍判定为通过。
+
+| 问题类 | 实例 | 候选目标 | 参考目标 | gap | 相对 gap | 求解器 | 判定 |
+| --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+| LDL | `inst_001` | 865.0424312821 | 865.0424312821 | -1.14e-13 | 1.31e-16 | HiGHS | 通过 |
+| LDL | `inst_002` | 545.7206650059 | 545.7206650059 | -2.27e-13 | 4.17e-16 | HiGHS | 通过 |
+| LDL | `inst_003` | -114.8182192573 | -114.8182192573 | -7.11e-14 | 6.19e-16 | HiGHS | 通过 |
+| LDL | `inst_004` | 2549.4634580351 | 2549.4634580351 | +9.09e-13 | 3.57e-16 | HiGHS | 通过 |
+| LDL | `inst_005` | 3977.8965220692 | 3977.8965220692 | +4.09e-12 | 1.03e-15 | HiGHS | 通过 |
+| LDL | `inst_006` | 7647.5138944693 | 7647.5138944693 | +1.82e-11 | 2.38e-15 | HiGHS | 通过 |
+| LU | `inst_001` | -21.2053376281 | -21.2053375973 | -3.08e-08 | 1.45e-09 | HiGHS | 通过 |
+| LU | `inst_002` | -74.8677026327 | -74.8677026327 | +5.68e-14 | 7.59e-16 | HiGHS | 通过 |
+| LU | `inst_003` | 7.0021802161 | 7.0021802161 | +8.88e-16 | 1.27e-16 | HiGHS | 通过 |
+| LU | `inst_004` | 2308.1354637611 | 2308.1354637611 | -1.36e-12 | 5.91e-16 | HiGHS | 通过 |
+| LU | `inst_005` | -309.0128689006 | -309.0128689006 | +5.68e-14 | 1.84e-16 | HiGHS | 通过 |
+| LU | `inst_006` | 1528.4264228536 | 1528.4264228536 | +2.27e-13 | 1.49e-16 | HiGHS | 通过 |

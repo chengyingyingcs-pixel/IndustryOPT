@@ -31,9 +31,15 @@ this problem in model.py. The required API is:
     def build(data: dict) -> pyomo.environ.ConcreteModel
 
 Use only Python's standard library and pyomo.environ. Do not invoke a solver inside build().
-Do not hard-code values from any particular instance. Multi-file input is keyed by filename stem,
-and CSV rows are dictionaries of strings. Use actual identifiers from the data instead of
-assuming consecutive integer indices.
+Do not hard-code values from any particular instance. When an instance has one JSON file,
+build(data) receives its parsed JSON dictionary. If that JSON has matrix_path pointing to a
+separate .mtx file, the loader resolves matrix_path against the instance directory and passes
+the resulting absolute path; it does not put the matrix contents in data. During evaluation,
+build(data) must open that path and parse the Matrix Market file to construct the model.
+The workspace/absolute-path inspection restrictions above apply to code generation, not to
+reading a path supplied in data at evaluation time. For instances with multiple JSON/CSV
+files, data is keyed by filename stem; CSV rows are dictionaries of strings. Use actual
+identifiers from the data instead of assuming consecutive integer indices.
 
 Before finishing, inspect model.py for Pyomo reserved component names, invalid indexing,
 empty extrema, and constraints that accidentally evaluate to a Python bool. No sample data
@@ -198,7 +204,20 @@ def main() -> int:
     parser.add_argument("--eval-batch-id")
     parser.add_argument("--timeout", type=int, default=7200)
     parser.add_argument("--limit", type=int)
+    parser.add_argument("--problems", nargs="+", metavar="NAME", help="only these problem classes")
     args = parser.parse_args()
+
+    if args.problems and args.limit:
+        parser.error("--problems and --limit cannot be combined")
+    all_problems = problem_dirs()
+    if args.problems:
+        requested = set(args.problems)
+        unknown = requested - {problem.name for problem in all_problems}
+        if unknown:
+            parser.error(f"unknown problem classes: {', '.join(sorted(unknown))}")
+        selected = [problem for problem in all_problems if problem.name in requested]
+    else:
+        selected = all_problems[: args.limit] if args.limit else all_problems
 
     if args.stage.endswith("-eval"):
         stage = args.stage[: -len("-eval")]
@@ -207,7 +226,7 @@ def main() -> int:
             raise FileNotFoundError(generation_root)
         eval_batch_id = args.eval_batch_id or args.batch_id
         output_root = DATASET_DIR / "eval_results/harness_sweep/evals" / eval_batch_id
-        for problem in problem_dirs():
+        for problem in selected:
             problem_dir = generation_root / problem.name
             record_path = problem_dir / "record.json"
             if not record_path.is_file():
@@ -231,8 +250,7 @@ def main() -> int:
     if suffix not in args.batch_id:
         raise SystemExit(f"batch id should contain {suffix}")
     generation_dir = DATASET_DIR / "eval_results/harness_sweep/generations" / args.batch_id
-    generation_dir.mkdir(parents=True, exist_ok=True)
-    selected = problem_dirs()[: args.limit] if args.limit else problem_dirs()
+    generation_dir.mkdir(parents=True, exist_ok=False)
 
     overall = {
         "batch_id": args.batch_id,
