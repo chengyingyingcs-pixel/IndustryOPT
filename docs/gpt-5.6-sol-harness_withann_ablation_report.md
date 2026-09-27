@@ -1,6 +1,21 @@
 # GPT-5.6-Sol Harness With-Annotation 消融实验报告
 
-状态：**实验设置待确认；尚未启动候选生成或求解评测**
+状态：**实验设置已确认；全量生成与求解流水线于 2026-09-26 启动**
+
+生成批次 ID：`gpt-5.6-sol-high-withann-pass1-20260926-124302`
+
+评测批次 ID：`gpt-5.6-sol-high-withann-pass1-20260926-124302-timeout7200-sequential-mem32`
+
+实际启动时间：`2026-09-26T12:49:01Z`
+
+流水线会话 PID：`44428`
+
+流水线日志：`/public/chengyingying/project/industryopt_harness_workspaces/gpt-5.6-sol-high-withann-pass1-20260926-124302.pipeline.log`
+
+首次流水线在生成完成后于 `2026-09-27T02:08:22Z` 发现
+`CBG-HarmonyOS-CriticalThreadOpt` 没有生成候选；该类已在同一 generation batch 内补生成，
+于 `2026-09-27T02:12:07Z` 成功得到 `model.py`。随后于 `2026-09-27T02:12Z` 从原评测
+batch 续跑，已复用此前完成的 5 个问题类结果，不重新求解这些实例。
 
 对照报告：[`gpt-5.6-sol-harness_noann_report.md`](gpt-5.6-sol-harness_noann_report.md)
 
@@ -59,6 +74,7 @@
 | 评测器快照 | `tools/run_eval_gpt56_noann_rerun.py` |
 | 评测器 SHA-256 | `d450a4c287804489e4a11da427c91e179bc6ffe76e63373be54839f8bcd77a0d` |
 | 评测方案指纹 | `1939da46299a` |
+| 启动时 harness SHA-256 | `9d35df23861c3d24513ae6b49b9117a42e7ed3e4b570498db3c91a4296fbe5bf` |
 
 数据集工作树当前只有 `tools/eval/run_eval.py` 存在未提交修改；本实验不修改、不使用该文件，
 继续使用上表列出的批次专用评测器快照。正式启动前须再次记录数据集提交、数据清单、评测器
@@ -159,11 +175,11 @@ briefly report completion.
 
 ## 7. 生成、求解与归档方案
 
-确认后使用新的 UTC 时间戳批次，不覆盖任何历史目录：
+本次使用以下新的 UTC 时间戳批次，不覆盖任何历史目录：
 
 ```text
-BATCH_ID=gpt-5.6-sol-high-withann-pass1-<UTC_TIMESTAMP>
-EVAL_BATCH_ID=${BATCH_ID}-timeout7200-sequential-mem32
+BATCH_ID=gpt-5.6-sol-high-withann-pass1-20260926-124302
+EVAL_BATCH_ID=gpt-5.6-sol-high-withann-pass1-20260926-124302-timeout7200-sequential-mem32
 ```
 
 计划命令为：
@@ -229,13 +245,14 @@ generation batch 拼接为 `pass@1`。候选代码错误也应按失败保留，
 
 ## 10. 待确认清单
 
-- [ ] 确认使用第 5 节完整提示词及其唯一一行差异。
-- [ ] 确认只新增 `annotations.md`，仍不提供实例样例和本地校验器。
-- [ ] 确认使用 19 类、146 实例、每类 1 份候选的 `pass@1` 设置。
-- [ ] 确认继续使用 7200 秒单求解器时限、32 GiB 地址空间上限和既定求解器顺序。
-- [ ] 确认沿用非最优参考“候选不劣于参考即通过”的最终判定口径。
-- [ ] 确认接受第 9 节所述历史 no-ann 提示词版本差异，且本轮不额外重跑 no-ann 全量基线。
-- [ ] 确认待批准后才修改 harness、创建正式批次并启动实验。
+- [x] 确认使用第 5 节完整提示词及其唯一一行差异。
+- [x] 确认只新增 `annotations.md`，仍不提供实例样例和本地校验器。
+- [x] 确认使用 19 类、146 实例、每类 1 份候选的 `pass@1` 设置。
+- [x] 确认继续使用 7200 秒单求解器时限、32 GiB 地址空间上限和既定求解器顺序。
+- [x] 确认沿用非最优参考“候选不劣于参考即通过”的最终判定口径。
+- [x] 确认接受第 9 节所述历史 no-ann 提示词版本差异，且本轮不额外重跑 no-ann 全量基线。
+- [x] 确认批准后修改 harness、创建正式批次并启动实验。
 
-在上述设置得到确认前，不运行 `codex exec`，不创建正式 generation/eval batch，也不启动任何
-实例求解。
+上述设置已由用户确认。启动前检查确认 19/19 个问题类的三份输入文件均非空，146 个实例
+清单完整，`appsi_highs`、SCIP、IPOPT 和 Couenne 均可用，且正式 generation/eval 目录
+均为新目录。

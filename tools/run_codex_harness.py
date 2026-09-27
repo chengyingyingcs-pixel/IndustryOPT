@@ -19,7 +19,7 @@ PYTHON = Path("/public/chengyingying/conda_envs/inferopt-py311/bin/python")
 EVALUATOR = Path(__file__).resolve().parent / "run_eval_gpt56_noann_rerun.py"
 WORKSPACE_ROOT = Path("/public/chengyingying/project/industryopt_harness_workspaces")
 
-PROMPT = '''You are being evaluated as a Codex modeling harness.
+NOANN_PROMPT = '''You are being evaluated as a Codex modeling harness.
 
 Work only in the current workspace. Do not inspect parent directories, absolute paths,
 environment variables, network resources, hidden reference models, or reference solutions.
@@ -48,6 +48,15 @@ schema, and ensure that model.py is the evaluated artifact. Your final response 
 briefly report completion.
 '''
 
+WITHANN_PROMPT = NOANN_PROMPT.replace(
+    "Read statement.md and data_README.md.",
+    "Read statement.md, annotations.md, and data_README.md.",
+)
+
+
+def prompt_for(with_annotations: bool) -> str:
+    return WITHANN_PROMPT if with_annotations else NOANN_PROMPT
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -70,7 +79,12 @@ def assert_workspace_isolated(workspace: Path) -> None:
         )
 
 
-def prepare_workspace(problem: Path, workspace: Path, with_annotations: bool) -> None:
+def prepare_workspace(
+    problem: Path,
+    workspace: Path,
+    with_annotations: bool,
+    prompt: str,
+) -> None:
     assert_workspace_isolated(workspace)
     if workspace.exists():
         shutil.rmtree(workspace)
@@ -85,12 +99,19 @@ def prepare_workspace(problem: Path, workspace: Path, with_annotations: bool) ->
         for path in sorted(workspace.rglob("*"))
         if path.is_file()
     }
+    expected_inputs = {"statement.md", "data_README.md"}
+    if with_annotations:
+        expected_inputs.add("annotations.md")
+    if set(inventory) != expected_inputs:
+        raise RuntimeError(
+            f"unexpected workspace inputs for {problem.name}: {sorted(inventory)}"
+        )
     (workspace.parent / "input_inventory.json").write_text(
         json.dumps(inventory, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )
-    (workspace.parent / "prompt.txt").write_text(PROMPT, encoding="utf-8")
+    (workspace.parent / "prompt.txt").write_text(prompt, encoding="utf-8")
     (workspace.parent / "prompt.sha256").write_text(
-        sha256_bytes(PROMPT.encode("utf-8")) + "\n", encoding="utf-8"
+        sha256_bytes(prompt.encode("utf-8")) + "\n", encoding="utf-8"
     )
 
 
@@ -103,7 +124,8 @@ def run_generation(
     problem_dir = generation_dir / problem.name
     problem_dir.mkdir(parents=True, exist_ok=True)
     workspace = workspace_root / problem.name / "workspace"
-    prepare_workspace(problem, workspace, with_annotations)
+    prompt = prompt_for(with_annotations)
+    prepare_workspace(problem, workspace, with_annotations, prompt)
 
     command = [
         "codex", "exec", "--skip-git-repo-check",
@@ -113,7 +135,7 @@ def run_generation(
         "--json",
         "-C", str(workspace),
         "--output-last-message", str(problem_dir / "response.md"),
-        PROMPT,
+        prompt,
     ]
     started_at = datetime.now(timezone.utc).isoformat()
     started = time.time()
@@ -143,7 +165,7 @@ def run_generation(
         "stage": "with_annotations" if with_annotations else "strict_no_annotations",
         "model": "gpt-5.6-sol",
         "reasoning_effort": "high",
-        "prompt_sha256": sha256_bytes(PROMPT.encode("utf-8")),
+        "prompt_sha256": sha256_bytes(prompt.encode("utf-8")),
         "codex_returncode": process.returncode,
         "elapsed_seconds": elapsed,
         "started_at": started_at,
@@ -157,16 +179,23 @@ def run_generation(
     return record
 
 
-def run_evaluation(problem: Path, candidate: Path, output_dir: Path, timeout: int) -> subprocess.CompletedProcess[str]:
+def run_evaluation(
+    problem: Path,
+    candidate: Path,
+    output_dir: Path,
+    timeout: int,
+    with_annotations: bool,
+) -> subprocess.CompletedProcess[str]:
     output_dir.mkdir(parents=True, exist_ok=True)
     command = [
         str(PYTHON), str(EVALUATOR), str(problem),
         "--from-code", str(candidate),
         "--model", "gpt-5.6-sol",
-        "--no-annotations",
         "--timeout", str(timeout),
         "--out", str(output_dir),
     ]
+    if not with_annotations:
+        command.append("--no-annotations")
     run_dirs = sorted((output_dir / problem.name / "runs").glob("*"))
     if run_dirs:
         command.extend(["--resume-dir", str(run_dirs[-1])])
@@ -221,6 +250,10 @@ def main() -> int:
 
     if args.stage.endswith("-eval"):
         stage = args.stage[: -len("-eval")]
+        with_annotations = stage == "withann"
+        expected_record_stage = (
+            "with_annotations" if with_annotations else "strict_no_annotations"
+        )
         generation_root = DATASET_DIR / "eval_results/harness_sweep/generations" / args.batch_id
         if not generation_root.is_dir():
             raise FileNotFoundError(generation_root)
@@ -232,11 +265,22 @@ def main() -> int:
             if not record_path.is_file():
                 raise FileNotFoundError(record_path)
             record = json.loads(record_path.read_text(encoding="utf-8"))
+            if record.get("stage") != expected_record_stage:
+                raise RuntimeError(
+                    f"Generation stage mismatch for {problem.name}: "
+                    f"expected {expected_record_stage}, got {record.get('stage')}"
+                )
             if not record.get("candidate_generated"):
                 raise RuntimeError(f"No candidate for {problem.name}")
             candidate = problem_dir / "model.py"
             print(f"EVAL {problem.name}", flush=True)
-            process = run_evaluation(problem, candidate, output_root / problem.name, args.timeout)
+            process = run_evaluation(
+                problem,
+                candidate,
+                output_root / problem.name,
+                args.timeout,
+                with_annotations,
+            )
             (problem_dir / "eval_stdout.log").write_text(process.stdout or "", encoding="utf-8")
             (problem_dir / "eval_stderr.log").write_text(process.stderr or "", encoding="utf-8")
             print(process.stdout[-4000:], flush=True)
@@ -259,7 +303,7 @@ def main() -> int:
         "reasoning_effort": "high",
         "with_annotations": with_annotations,
         "pass_semantics": "pass@1, one class-level candidate per problem",
-        "prompt_sha256": sha256_bytes(PROMPT.encode("utf-8")),
+        "prompt_sha256": sha256_bytes(prompt_for(with_annotations).encode("utf-8")),
         "started_at": datetime.now(timezone.utc).isoformat(),
         "problems": {},
     }
