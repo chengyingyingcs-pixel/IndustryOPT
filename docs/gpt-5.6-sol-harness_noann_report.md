@@ -319,17 +319,18 @@ HiGHS `Timing` 或 SCIP `Solving Time` 补齐；`inst_008` 同样按求解器日
 没有可采用的解，因而没有 `solve_seconds`，未进入分位数；其 IPOPT 和 Couenne 两次不可行
 尝试分别耗时 177.412 秒和 0.115 秒，累计 177.527 秒。
 
-下图覆盖全部 146 个实例。横轴按耗时从快到慢排序，每个点代表一个实例；纵轴采用对数
-尺度，以同时展示亚秒级实例和达到 7200 秒时限的实例。145 个有最终采用求解器计时的实例
-使用 `solve_seconds`（TBE 按求解器日志补齐），Camera-L2 `inst_004` 使用两次不可行尝试
-的累计 177.527 秒，并以空心菱形标出。因此图中的 146 个点与下方“有计时/总数”表的
-145/146 口径不同，但覆盖了相同的全部实例集合。
+下图覆盖全部 146 个实例。横轴采用六个求解时间范围：`<=1 s`、`(1,60] s`、
+`(60,100] s`、`(100,1000] s`、`(1000,7200) s` 和 `>=7200 s`；纵轴为各范围内的
+实例数量。145 个有最终采用求解器计时的实例使用 `solve_seconds`（TBE 按求解器日志
+补齐），Camera-L2 `inst_004` 使用两次不可行尝试的累计 177.527 秒，计入
+`(100,1000] s`。因此直方图覆盖 146 个实例，而下方描述分位数的“有计时/总数”表仍为
+145/146。
 
 ![146 个实例的求解时间分布](figures/gpt-5.6-sol-noann-solve-time-distribution.png)
 
-图 7-1：所有 146 个实例的求解时间分布。颜色表示耗时区间，虚线分别表示 60 秒、600 秒
-和单求解器 7200 秒时限；图中“attempt total”仅用于表示没有可接受解的 Camera-L2
-`inst_004`，不表示一个成功的求解时间。绘图脚本为
+图 7-1：所有 146 个实例的求解时间直方图。柱顶同时标出实例数及其占全部实例的比例；
+`(1000,7200) s` 范围没有实例，因而柱高为 0。Camera-L2 `inst_004` 的累计尝试时间只为
+完整覆盖实例集合，不表示一个成功的求解时间。绘图脚本为
 `tools/plot_noann_solve_time_distribution.py`。
 
 | 问题类 | 有计时/总数 | 最小 | P25 | 中位数 | P75 | 最大 | 均值 |
@@ -354,32 +355,33 @@ HiGHS `Timing` 或 SCIP `Solving Time` 补齐；`inst_008` 同样按求解器日
 | ICT-OpticalNetwork-NetworkPlanning-PathProtection | 5/5 | 0.417 | 0.484 | 1.356 | 1.783 | 2.880 | 1.384 |
 | ICT-Wireless-ChannelEstimation-SparseDelay | 10/10 | 0.807 | 9.502 | 28.02 | 68.64 | 284.24 | 74.11 |
 
-耗时区间计数如下。`>=7200` 表示最终采用的求解器达到或略超单求解器 7200 秒时限；
-评测器在求解调用外层按 wall-clock 计时，进程启动、结果回收和清理会使记录值略高于
-7200 秒。
+直方图对应的逐问题类计数如下。`>=7200 s` 表示最终采用的求解器达到或略超单求解器
+7200 秒时限；评测器在求解调用外层按 wall-clock 计时，进程启动、结果回收和清理会使
+记录值略高于 7200 秒。本表与直方图一样将 Camera-L2 `inst_004` 的累计尝试时间计入
+`(100,1000] s`，因此合计为 146。
 
-| 问题类 | `<=1` | `(1,60]` | `(60,600]` | `(600,7200)` | `>=7200` |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Auto-Vehicle-ActiveSuspensionBalance | 0 | 8 | 0 | 0 | 0 |
-| CBG-Camera-JPEGQuantizationTable | 2 | 6 | 0 | 0 | 0 |
-| CBG-Camera-VideoStabilization-L1 | 8 | 0 | 0 | 0 | 0 |
-| CBG-Camera-VideoStabilization-L2 | 0 | 7 | 0 | 0 | 0 |
-| CBG-Communication-RailCellHandover | 3 | 2 | 0 | 0 | 0 |
-| CBG-HarmonyOS-CriticalThreadOpt | 5 | 0 | 0 | 0 | 0 |
-| CBG-HarmonyOS-MemoryEviction | 8 | 0 | 0 | 0 | 0 |
-| Compute-CAE-SparseLA-LDLSymmetricPivoting | 6 | 0 | 0 | 0 | 0 |
-| Compute-CAE-SparseLA-LUPivotReordering | 6 | 0 | 0 | 0 | 0 |
-| Compute-Cluster-CrossPodLoadBalancing | 0 | 2 | 0 | 1 | 7 |
-| Compute-LLM-MoEExpertLoadBalance | 2 | 0 | 0 | 1 | 2 |
-| Compute-TBE-MemoryAllocation | 3 | 1 | 1 | 0 | 3 |
-| Energy-Microgrid-SizingAndOperation | 0 | 4 | 2 | 0 | 4 |
-| Energy-VPP-DayAheadAdjustableLoadScheduling | 6 | 9 | 0 | 0 | 0 |
-| ICT-DataCom-LoadBalancing-SingleAndMultitimestamp | 8 | 0 | 0 | 0 | 0 |
-| ICT-DataCom-NetworkPlanning-CapacityExpansion | 4 | 4 | 0 | 0 | 0 |
-| ICT-OpticalNetwork-NetworkPlanning-LinkProtection | 1 | 4 | 0 | 0 | 0 |
-| ICT-OpticalNetwork-NetworkPlanning-PathProtection | 2 | 3 | 0 | 0 | 0 |
-| ICT-Wireless-ChannelEstimation-SparseDelay | 1 | 6 | 3 | 0 | 0 |
-| **合计** | **65** | **56** | **6** | **2** | **16** |
+| 问题类 | `<=1 s` | `(1,60] s` | `(60,100] s` | `(100,1000] s` | `(1000,7200) s` | `>=7200 s` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Auto-Vehicle-ActiveSuspensionBalance | 0 | 8 | 0 | 0 | 0 | 0 |
+| CBG-Camera-JPEGQuantizationTable | 2 | 6 | 0 | 0 | 0 | 0 |
+| CBG-Camera-VideoStabilization-L1 | 8 | 0 | 0 | 0 | 0 | 0 |
+| CBG-Camera-VideoStabilization-L2 | 0 | 7 | 0 | 1 | 0 | 0 |
+| CBG-Communication-RailCellHandover | 3 | 2 | 0 | 0 | 0 | 0 |
+| CBG-HarmonyOS-CriticalThreadOpt | 5 | 0 | 0 | 0 | 0 | 0 |
+| CBG-HarmonyOS-MemoryEviction | 8 | 0 | 0 | 0 | 0 | 0 |
+| Compute-CAE-SparseLA-LDLSymmetricPivoting | 6 | 0 | 0 | 0 | 0 | 0 |
+| Compute-CAE-SparseLA-LUPivotReordering | 6 | 0 | 0 | 0 | 0 | 0 |
+| Compute-Cluster-CrossPodLoadBalancing | 0 | 2 | 0 | 1 | 0 | 7 |
+| Compute-LLM-MoEExpertLoadBalance | 2 | 0 | 0 | 1 | 0 | 2 |
+| Compute-TBE-MemoryAllocation | 3 | 1 | 0 | 1 | 0 | 3 |
+| Energy-Microgrid-SizingAndOperation | 0 | 4 | 0 | 2 | 0 | 4 |
+| Energy-VPP-DayAheadAdjustableLoadScheduling | 6 | 9 | 0 | 0 | 0 | 0 |
+| ICT-DataCom-LoadBalancing-SingleAndMultitimestamp | 8 | 0 | 0 | 0 | 0 | 0 |
+| ICT-DataCom-NetworkPlanning-CapacityExpansion | 4 | 4 | 0 | 0 | 0 | 0 |
+| ICT-OpticalNetwork-NetworkPlanning-LinkProtection | 1 | 4 | 0 | 0 | 0 | 0 |
+| ICT-OpticalNetwork-NetworkPlanning-PathProtection | 2 | 3 | 0 | 0 | 0 | 0 |
+| ICT-Wireless-ChannelEstimation-SparseDelay | 1 | 6 | 1 | 2 | 0 | 0 |
+| **合计** | **65** | **56** | **1** | **8** | **0** | **16** |
 
 145 个有最终求解器计时的实例中，121 个（83.45%）在 60 秒内完成；整体中位数为
 1.445 秒，P75 为 35.784 秒，P90 已达到 7200.01 秒。均值为 821.34 秒，明显高于

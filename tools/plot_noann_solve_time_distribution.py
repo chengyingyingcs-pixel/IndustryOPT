@@ -10,8 +10,6 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-from matplotlib.ticker import FuncFormatter
 
 
 DATASET_ROOT = Path("/public/chengyingying/project/industry_mathopt_dataset")
@@ -95,39 +93,32 @@ def load_records() -> list[dict]:
 
 def runtime_bucket(seconds: float) -> str:
     if seconds <= 1:
-        return "<= 1 s"
+        return "<=1 s"
     if seconds <= 60:
-        return "1-60 s"
-    if seconds <= 600:
-        return "60-600 s"
+        return "(1,60] s"
+    if seconds <= 100:
+        return "(60,100] s"
+    if seconds <= 1000:
+        return "(100,1000] s"
     if seconds < 7200:
-        return "600-7200 s"
-    return ">= 7200 s"
-
-
-def format_seconds(value: float, _position: float | None = None) -> str:
-    if value < 1:
-        return f"{value:g}"
-    return f"{value:,.0f}"
+        return "(1000,7200) s"
+    return ">=7200 s"
 
 
 def main() -> None:
     records = load_records()
     colors = {
-        "<= 1 s": "#177E89",
-        "1-60 s": "#2A9D66",
-        "60-600 s": "#E9A23B",
-        "600-7200 s": "#D76B27",
-        ">= 7200 s": "#B33A3A",
+        "<=1 s": "#177E89",
+        "(1,60] s": "#2A9D66",
+        "(60,100] s": "#68A357",
+        "(100,1000] s": "#E9A23B",
+        "(1000,7200) s": "#D76B27",
+        ">=7200 s": "#B33A3A",
     }
     counts = {
         bucket: sum(runtime_bucket(record["seconds"]) == bucket for record in records)
         for bucket in colors
     }
-
-    ranks = list(range(1, len(records) + 1))
-    seconds = [record["seconds"] for record in records]
-    point_colors = [colors[runtime_bucket(value)] for value in seconds]
 
     plt.rcParams.update(
         {
@@ -140,121 +131,57 @@ def main() -> None:
             "ytick.color": "#4D535A",
         }
     )
-    fig, ax = plt.subplots(figsize=(12.8, 7.2), dpi=180)
+    fig, ax = plt.subplots(figsize=(11.6, 6.5), dpi=180)
     fig.patch.set_facecolor("white")
     ax.set_facecolor("#FAFBFC")
 
-    ax.plot(ranks, seconds, color="#A8AFB7", linewidth=1.1, zorder=1)
-    ax.scatter(
-        ranks,
-        seconds,
-        c=point_colors,
-        s=31,
-        edgecolors="white",
-        linewidths=0.45,
-        zorder=2,
+    buckets = list(colors)
+    heights = [counts[bucket] for bucket in buckets]
+    bars = ax.bar(
+        buckets,
+        heights,
+        color=[colors[bucket] for bucket in buckets],
+        edgecolor="white",
+        linewidth=1.2,
+        width=0.72,
+        zorder=3,
     )
-
-    proxy_index = next(
-        index
-        for index, record in enumerate(records)
-        if record["source"] == "infeasible_attempt_total"
-    )
-    ax.scatter(
-        [proxy_index + 1],
-        [records[proxy_index]["seconds"]],
-        marker="D",
-        s=80,
-        facecolors="white",
-        edgecolors="#20252B",
-        linewidths=1.6,
-        zorder=4,
-    )
-    ax.annotate(
-        "Camera-L2 inst_004\n177.527 s (two infeasible attempts)",
-        xy=(proxy_index + 1, records[proxy_index]["seconds"]),
-        xytext=(91, 425),
-        textcoords="data",
-        arrowprops={"arrowstyle": "->", "color": "#343A40", "lw": 1},
-        bbox={"boxstyle": "round,pad=0.35", "fc": "white", "ec": "#B8BEC5"},
-        fontsize=9,
-        ha="left",
-    )
-
-    for value, label in ((60, "60 s"), (600, "600 s"), (7200, "7200 s limit")):
-        ax.axhline(value, color="#6E747B", linestyle="--", linewidth=0.8, alpha=0.7)
+    for bar, count in zip(bars, heights):
         ax.text(
-            1.5,
-            value * (1.08 if value < 7200 else 0.78),
-            label,
-            color="#555B62",
-            fontsize=8.5,
-            va="bottom" if value < 7200 else "top",
+            bar.get_x() + bar.get_width() / 2,
+            count + 1.2,
+            f"{count}\n({count / len(records):.1%})",
+            ha="center",
+            va="bottom",
+            fontsize=11,
+            fontweight="bold",
+            color="#30343B",
         )
 
-    ax.set_yscale("log")
-    ax.set_ylim(0.03, 12500)
-    ax.set_xlim(0, 149)
-    ax.set_xticks([1, 25, 50, 75, 100, 125, 146])
-    ax.set_yticks([0.04, 0.1, 1, 10, 60, 600, 3600, 7200])
-    ax.yaxis.set_major_formatter(FuncFormatter(format_seconds))
-    ax.grid(axis="y", which="major", color="#D9DEE3", linewidth=0.7, alpha=0.75)
+    ax.set_ylim(0, 76)
+    ax.set_yticks(range(0, 71, 10))
+    ax.grid(axis="y", color="#D9DEE3", linewidth=0.8, alpha=0.8, zorder=0)
     ax.grid(axis="x", visible=False)
     ax.spines[["top", "right"]].set_visible(False)
 
-    ax.set_title("Solve-time distribution across all 146 instances", loc="left", fontsize=16, pad=18)
+    ax.set_title("Histogram of solver runtimes across all 146 instances", loc="left", fontsize=16, pad=18)
     ax.text(
         0,
         1.015,
-        "Instances ranked from fastest to slowest; logarithmic runtime axis",
+        "Six runtime ranges; all bars sum to 146 instances",
         transform=ax.transAxes,
         color="#5B6168",
         fontsize=10.5,
     )
-    ax.set_xlabel("Instance rank (fastest to slowest)", labelpad=10)
-    ax.set_ylabel("Solver runtime (seconds, log scale)", labelpad=10)
-
-    legend_handles = [
-        Line2D(
-            [0],
-            [0],
-            marker="o",
-            color="none",
-            markerfacecolor=color,
-            markeredgecolor="white",
-            markersize=7,
-            label=f"{bucket}: {counts[bucket]}",
-        )
-        for bucket, color in colors.items()
-    ]
-    legend_handles.append(
-        Line2D(
-            [0],
-            [0],
-            marker="D",
-            color="none",
-            markerfacecolor="white",
-            markeredgecolor="#20252B",
-            markersize=7,
-            label="No accepted solution: attempt total",
-        )
-    )
-    ax.legend(
-        handles=legend_handles,
-        loc="upper left",
-        frameon=True,
-        framealpha=0.97,
-        facecolor="white",
-        edgecolor="#D1D6DB",
-        ncol=2,
-        fontsize=9,
-    )
+    ax.set_xlabel("Solver runtime range", labelpad=12)
+    ax.set_ylabel("Number of instances", labelpad=10)
+    ax.tick_params(axis="x", labelsize=10.5, pad=7)
 
     fig.text(
-        0.075,
+        0.08,
         0.015,
         "Runtime is the selected solver call for 145 instances; Camera-L2 inst_004 uses the "
-        "sum of its two infeasible attempts so every instance is represented.",
+        "sum of its two infeasible attempts (177.527 s) and is included in (100,1000] s.",
         color="#62686F",
         fontsize=8.5,
     )
