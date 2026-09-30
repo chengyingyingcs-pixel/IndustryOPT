@@ -272,6 +272,81 @@ generation batch 拼接为 `pass@1`。候选代码错误也应按失败保留，
 | ICT-Wireless-ChannelEstimation-SparseDelay | 10/10 | 10/10 | 0 |
 | **合计** | **125/146** | **119/146** | **+6** |
 
+### 9.1 各问题类的实例求解时间分布
+
+本节统计 with-annotation 批次的实例求解时间，单位为秒。优先使用实例
+`result.json` 中的 `solve_seconds`（107/146 个实例）；其余 39 个实例从同一运行目录的
+求解器日志补齐：IPOPT 使用 `Total seconds in IPOPT`，HiGHS 使用 `HiGHS run time`，
+SCIP/Couenne 使用 `Timing` 或 `Solving Time (sec)`。因此所有 146 个实例都有时间记录。
+对于没有可接受解的 MoE `inst_004` 和 TBE `inst_008`，时间表示最后一次求解器尝试，分别为
+约 7200.32 秒和 7200.00 秒，不能解释为成功求解时间。分位数采用线性插值；时间分布也包含
+失败实例，因为它描述的是评测器实际花费的求解时间，而不是仅描述通过实例。
+
+| 问题类 | 有计时/总数 | 最小 | P25 | 中位数 | P75 | 最大 | 均值 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Auto-Vehicle-ActiveSuspensionBalance | 8/8 | 20.864 | 24.573 | 26.439 | 35.436 | 39.485 | 29.171 |
+| CBG-Camera-JPEGQuantizationTable | 8/8 | 0.370 | 0.730 | 1.100 | 1.363 | 1.820 | 1.090 |
+| CBG-Camera-VideoStabilization-L1 | 8/8 | 0.000 | 0.010 | 0.010 | 0.013 | 0.020 | 0.011 |
+| CBG-Camera-VideoStabilization-L2 | 8/8 | 11.130 | 23.505 | 31.774 | 46.672 | 68.544 | 36.570 |
+| CBG-Communication-RailCellHandover | 5/5 | 0.000 | 0.020 | 0.130 | 6.190 | 8.730 | 3.014 |
+| CBG-HarmonyOS-CriticalThreadOpt | 5/5 | 0.331 | 0.364 | 0.399 | 0.414 | 0.532 | 0.408 |
+| CBG-HarmonyOS-MemoryEviction | 8/8 | 0.341 | 0.360 | 0.379 | 0.389 | 0.396 | 0.374 |
+| Compute-CAE-SparseLA-LDLSymmetricPivoting | 6/6 | 0.399 | 0.414 | 0.428 | 0.450 | 0.481 | 0.434 |
+| Compute-CAE-SparseLA-LUPivotReordering | 6/6 | 0.365 | 0.371 | 0.403 | 0.430 | 0.603 | 0.429 |
+| Compute-Cluster-CrossPodLoadBalancing | 10/10 | 1.189 | 1955.361 | 7200.358 | 7200.753 | 7201.537 | 5061.940 |
+| Compute-LLM-MoEExpertLoadBalance | 5/5 | 0.647 | 1.482 | 7200.320 | 7201.960 | 7207.931 | 4322.468 |
+| Compute-TBE-MemoryAllocation | 8/8 | 1.060 | 2.450 | 370.797 | 7200.569 | 7205.448 | 2794.383 |
+| Energy-Microgrid-SizingAndOperation | 10/10 | 4.923 | 21.718 | 114.127 | 7212.454 | 7267.278 | 2921.356 |
+| Energy-VPP-DayAheadAdjustableLoadScheduling | 15/15 | 0.544 | 0.772 | 2.848 | 33.361 | 44.997 | 14.937 |
+| ICT-DataCom-LoadBalancing-SingleAndMultitimestamp | 8/8 | 0.381 | 0.395 | 0.402 | 0.417 | 0.449 | 0.408 |
+| ICT-DataCom-NetworkPlanning-CapacityExpansion | 8/8 | 0.386 | 0.903 | 1.042 | 7.085 | 9.386 | 3.544 |
+| ICT-OpticalNetwork-NetworkPlanning-LinkProtection | 5/5 | 0.438 | 1.366 | 3.761 | 5.766 | 14.109 | 5.088 |
+| ICT-OpticalNetwork-NetworkPlanning-PathProtection | 5/5 | 0.384 | 0.471 | 0.482 | 0.792 | 3.849 | 1.196 |
+| ICT-Wireless-ChannelEstimation-SparseDelay | 10/10 | 1.227 | 8.385 | 25.279 | 67.410 | 295.958 | 77.049 |
+
+按第 7.1 节相同的六个时间区间统计，with-annotation 的总体分布如下：
+
+| 求解时间范围 | 实例数量 | 占 146 个实例 |
+| --- | ---: | ---: |
+| `<=1 s` | 62 | 42.47% |
+| `(1,60] s` | 58 | 39.73% |
+| `(60,100] s` | 4 | 2.74% |
+| `(100,1000] s` | 5 | 3.42% |
+| `(1000,7200) s` | 0 | 0.00% |
+| `>=7200 s` | 17 | 11.64% |
+| **合计** | **146** | **100%** |
+
+各问题类的六档计数如下。达到或略超 7200 秒的记录包括时限级求解以及外层 wall-clock
+计时带来的轻微超出；它们不表示已经证明最优。
+
+| 问题类 | `<=1 s` | `(1,60] s` | `(60,100] s` | `(100,1000] s` | `(1000,7200) s` | `>=7200 s` |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Auto-Vehicle-ActiveSuspensionBalance | 0 | 8 | 0 | 0 | 0 | 0 |
+| CBG-Camera-JPEGQuantizationTable | 3 | 5 | 0 | 0 | 0 | 0 |
+| CBG-Camera-VideoStabilization-L1 | 8 | 0 | 0 | 0 | 0 | 0 |
+| CBG-Camera-VideoStabilization-L2 | 0 | 6 | 2 | 0 | 0 | 0 |
+| CBG-Communication-RailCellHandover | 3 | 2 | 0 | 0 | 0 | 0 |
+| CBG-HarmonyOS-CriticalThreadOpt | 5 | 0 | 0 | 0 | 0 | 0 |
+| CBG-HarmonyOS-MemoryEviction | 8 | 0 | 0 | 0 | 0 | 0 |
+| Compute-CAE-SparseLA-LDLSymmetricPivoting | 6 | 0 | 0 | 0 | 0 | 0 |
+| Compute-CAE-SparseLA-LUPivotReordering | 6 | 0 | 0 | 0 | 0 | 0 |
+| Compute-Cluster-CrossPodLoadBalancing | 0 | 2 | 0 | 1 | 0 | 7 |
+| Compute-LLM-MoEExpertLoadBalance | 1 | 1 | 0 | 0 | 0 | 3 |
+| Compute-TBE-MemoryAllocation | 0 | 4 | 0 | 1 | 0 | 3 |
+| Energy-Microgrid-SizingAndOperation | 0 | 4 | 1 | 1 | 0 | 4 |
+| Energy-VPP-DayAheadAdjustableLoadScheduling | 6 | 9 | 0 | 0 | 0 | 0 |
+| ICT-DataCom-LoadBalancing-SingleAndMultitimestamp | 8 | 0 | 0 | 0 | 0 | 0 |
+| ICT-DataCom-NetworkPlanning-CapacityExpansion | 3 | 5 | 0 | 0 | 0 | 0 |
+| ICT-OpticalNetwork-NetworkPlanning-LinkProtection | 1 | 4 | 0 | 0 | 0 | 0 |
+| ICT-OpticalNetwork-NetworkPlanning-PathProtection | 4 | 1 | 0 | 0 | 0 | 0 |
+| ICT-Wireless-ChannelEstimation-SparseDelay | 0 | 7 | 1 | 2 | 0 | 0 |
+| **合计** | **62** | **58** | **4** | **5** | **0** | **17** |
+
+总体上，`<=60 s` 的实例有 120 个，占 82.19%；中位数较低的问题类主要是 L1 视频稳定、
+两类 CAE、HarmonyOS、DataCom 和光网络保护。长尾集中在 CrossPod、MoE、TBE 和 Microgrid：
+这四类共有 17 个实例达到 7200 秒级，占全部时限级记录，说明 annotations 能改善部分模型的
+语义还原，但不能消除大规模离散模型的组合搜索和时限风险。
+
 ## 10. 失败原因分析
 
 21 个失败实例可分为五类。下表中的“候选自身可行性失败”专指评测器把解重新代回候选模型
